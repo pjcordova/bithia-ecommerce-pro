@@ -132,6 +132,7 @@ interface AppContextType {
   getStockForProduct: (productoId: string) => InventarioTalla[]
   getTotalStock: (productoId: string) => number
   getVentasStaff: (staffId: string, fecha?: string) => Venta[]
+  registrarCuadre: (cuadre: any) => void; // Interfaz limpia y correcta
 }
 
 const AppContext = createContext<AppContextType | null>(null)
@@ -195,7 +196,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }))
     setDetalleVentas(prev => [...newDetalles, ...prev])
 
-    // Update Client if exists
     if (clienteId) {
       setClientes(prev => prev.map(c => {
         if (c.id === clienteId) {
@@ -256,6 +256,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return cuadre
   }, [ventas])
 
+  // Lógica faltante para registrar un cuadre directamente
+  const registrarCuadre = useCallback((cuadre: any) => {
+    setCuadres(prev => [cuadre, ...prev])
+  }, [])
+
   const updateConfiguracion = useCallback((config: Partial<ConfiguracionEmpresa>) => {
     setConfiguracion(prev => {
       const next = { ...prev, ...config }
@@ -283,6 +288,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ajustarStock, agregarGasto, agregarCliente, enviarCuadre,
       updateConfiguracion, agregarStaff, eliminarStaff,
       getStockForProduct, getTotalStock, getVentasStaff,
+      registrarCuadre, // Aquí está la exportación que faltaba
     }}>
       {children}
     </AppContext.Provider>
