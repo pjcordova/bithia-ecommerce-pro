@@ -28,11 +28,11 @@ function ClientesContent() {
       toast.error('El nombre es obligatorio')
       return
     }
-    agregarCliente({
+    agregarCliente(
       nombre,
-      telefono: telefono || 'N/A',
-      email: email || 'N/A'
-    })
+      telefono || 'N/A',
+      '' // Enviamos un texto vacío para la fecha de nacimiento si no la tienes en el formulario
+    )
     toast.success('Cliente registrado con éxito')
     setIsModalOpen(false)
     setNombre('')
