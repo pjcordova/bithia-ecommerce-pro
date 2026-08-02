@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model clientes {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre                  String
+  whatsapp                String?
+  fecha_nacimiento        DateTime? @db.Date
+  total_prendas_compradas Int?      @default(0)
+  valor_total_vida        Decimal?  @default(0.00) @db.Decimal(10, 2)
+  notas                   String?
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  ventas                  ventas[]
+}
+
+model configuracion_empresa {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre_empresa       String    @default("Bithia Brand")
+  logo_url             String?
+  tema_activo          String?   @default("light")
+  whatsapp_corporativo String?   @default("+51 942 275 208")
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model cuadres_caja {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuario_staff_id    String    @db.Uuid
+  fecha_hora          DateTime? @default(now()) @db.Timestamptz(6)
+  monto_efectivo      Decimal?  @default(0) @db.Decimal(10, 2)
+  monto_yape          Decimal?  @default(0) @db.Decimal(10, 2)
+  monto_plin          Decimal?  @default(0) @db.Decimal(10, 2)
+  monto_transferencia Decimal?  @default(0) @db.Decimal(10, 2)
+  monto_tarjeta       Decimal?  @default(0) @db.Decimal(10, 2)
+  monto_declarado     Decimal   @db.Decimal(10, 2)
+  monto_sistema       Decimal   @db.Decimal(10, 2)
+  diferencia          Decimal   @default(0) @db.Decimal(10, 2)
+  observaciones       String?
+  estado              String?   @default("pendiente")
+  perfiles            perfiles  @relation(fields: [usuario_staff_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model detalle_ventas {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  venta_id                 String    @db.Uuid
+  producto_id              String    @db.Uuid
+  talla                    String
+  cantidad                 Int
+  costo_inversion_unitario Decimal   @db.Decimal(10, 2)
+  precio_venta_unitario    Decimal   @db.Decimal(10, 2)
+  subtotal                 Decimal   @db.Decimal(10, 2)
+  utilidad_subtotal        Decimal?  @default(dbgenerated("((precio_venta_unitario - costo_inversion_unitario) * (cantidad)::numeric)")) @db.Decimal(10, 2)
+  productos                productos @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ventas                   ventas    @relation(fields: [venta_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model gastos_operativos {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  concepto   String
+  monto      Decimal   @db.Decimal(10, 2)
+  categoria  String?   @default("Otros")
+  fecha_hora DateTime? @default(now()) @db.Timestamptz(6)
+  usuario_id String?   @db.Uuid
+  perfiles   perfiles? @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model inventario_tallas {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  producto_id String    @db.Uuid
+  talla       String
+  cantidad    Int       @default(0)
+  productos   productos @relation(fields: [producto_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([producto_id, talla])
+}
+
+model movimientos_inventario {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  producto_id String    @db.Uuid
+  talla       String
+  tipo        String
+  cantidad    Int
+  motivo      String?
+  usuario_id  String?   @db.Uuid
+  fecha_hora  DateTime? @default(now()) @db.Timestamptz(6)
+  productos   productos @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  perfiles    perfiles? @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model perfiles {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre                 String
+  email                  String                   @unique
+  rol                    String                   @default("staff")
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  cuadres_caja           cuadres_caja[]
+  gastos_operativos      gastos_operativos[]
+  movimientos_inventario movimientos_inventario[]
+  ventas                 ventas[]
+}
+
+model productos {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  codigo_barras          String?                  @unique // <--- NUEVO: Código EAN del proveedor de Lima
+  nombre                 String
+  categoria              String                   @default("General")
+  color_principal        String                   @default("Beige")
+  costo_inversion        Decimal                  @default(0.00) @db.Decimal(10, 2)
+  precio_venta           Decimal                  @db.Decimal(10, 2)
+  margen_neto            Decimal?                 @default(dbgenerated("(precio_venta - costo_inversion)")) @db.Decimal(10, 2)
+  imagen_url             String?
+  activo                 Boolean?                 @default(true)
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  detalle_ventas         detalle_ventas[]
+  inventario_tallas      inventario_tallas[]
+  movimientos_inventario movimientos_inventario[]
+}
+
+model ventas {
+  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuario_id            String?          @db.Uuid
+  cliente_id            String?          @db.Uuid
+  fecha_hora            DateTime?        @default(now()) @db.Timestamptz(6)
+  canal_venta           String
+  metodo_pago           String
+  total                 Decimal          @db.Decimal(10, 2)
+  utilidad_neta_venta   Decimal          @default(0.00) @db.Decimal(10, 2)
+  detalle_ventas        detalle_ventas[]
+  clientes              clientes?        @relation(fields: [cliente_id], references: [id], onUpdate: NoAction)
+  perfiles              perfiles?        @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
