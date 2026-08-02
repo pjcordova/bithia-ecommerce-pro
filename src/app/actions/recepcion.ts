@@ -62,7 +62,7 @@ export async function registrarRecepcionMercaderia(data: {
             for (const t of tallas) {
                 const tallaUpper = t.talla.toUpperCase()
                 const tallaExistente = producto.inventario_tallas.find(
-                    item => item.talla.toUpperCase() === tallaUpper
+                    (item: any) => item.talla.toUpperCase() === tallaUpper
                 )
 
                 if (tallaExistente) {
