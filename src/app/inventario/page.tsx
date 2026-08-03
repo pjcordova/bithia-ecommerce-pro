@@ -7,7 +7,6 @@ import { Package, Search, Plus, AlertTriangle, Tag, ScanLine } from 'lucide-reac
 import { toast } from 'sonner'
 
 export default function InventarioPage() {
-  // 1. Añadimos 'productos' al hook useApp para poder cruzar los nombres y categorías
   const { inventario, productos, agregarProducto } = useApp()
   const [busqueda, setBusqueda] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('TODAS')
@@ -24,11 +23,10 @@ export default function InventarioPage() {
 
   const productosFiltrados = useMemo(() => {
     return inventario.filter(item => {
-      // 2. Buscamos el producto padre utilizando el producto_id del inventario
       const productoAsociado = productos.find(p => p.id === item.producto_id)
 
       const itemNombre = productoAsociado?.nombre?.toLowerCase() || ''
-      const itemSku = productoAsociado?.categoria?.toLowerCase() || ''
+      const itemSku = productoAsociado?.sku?.toLowerCase() || ''
 
       const matchText = itemNombre.includes(busqueda.toLowerCase()) || itemSku.includes(busqueda.toLowerCase())
       const matchCat = filtroCategoria === 'TODAS' || productoAsociado?.categoria === filtroCategoria
@@ -49,8 +47,8 @@ export default function InventarioPage() {
       sku: sku || `SKU-${Math.floor(Math.random() * 90000 + 10000)}`,
       categoria,
       talla,
-      precio: parseFloat(precio),
-      costo: parseFloat(costo) || 0,
+      precio_venta: parseFloat(precio),
+      costo_inversion: parseFloat(costo) || 0,
       cantidad: parseInt(cantidad)
     })
 
@@ -137,9 +135,8 @@ export default function InventarioPage() {
                   </tr>
                 ) : (
                   productosFiltrados.map(item => {
-                    // 3. Obtenemos la información real del producto asociado para mostrar sus datos en la tabla
                     const productoAsociado = productos.find(p => p.id === item.producto_id)
-                    const precioSeguro = Number(productoAsociado?.precio_venta || item.precio || 0)
+                    const precioSeguro = Number(productoAsociado?.precio_venta || 0)
                     const cantidadSegura = Number(item.cantidad || 0)
 
                     return (
@@ -148,12 +145,12 @@ export default function InventarioPage() {
                           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                             <Package className="h-4 w-4" />
                           </div>
-                          {productoAsociado?.nombre || item.nombre || 'Sin nombre'}
+                          {productoAsociado?.nombre || 'Sin nombre'}
                         </td>
-                        <td className="py-4 px-4 text-muted-foreground font-mono text-xs">{productoAsociado?.sku || item.sku || 'N/A'}</td>
+                        <td className="py-4 px-4 text-muted-foreground font-mono text-xs">{productoAsociado?.sku || 'N/A'}</td>
                         <td className="py-4 px-4">
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-foreground">
-                            <Tag className="h-3 w-3" /> {productoAsociado?.categoria || item.categoria || 'General'}
+                            <Tag className="h-3 w-3" /> {productoAsociado?.categoria || 'General'}
                           </span>
                         </td>
                         <td className="py-4 px-4 font-bold text-foreground">{item.talla || 'Única'}</td>
