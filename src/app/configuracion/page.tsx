@@ -1,13 +1,12 @@
 "use client";
 import React, { useState, useEffect } from 'react'
 import { Layout } from '@/components/Layout'
-import { AdminRoute } from '@/components/AdminRoute' // Mantengo tus importaciones originales
+import { AdminRoute } from '@/components/AdminRoute'
 import { useApp } from '@/context/AppContext'
 import { Settings, Building, Users, Moon, Sun, Trash2, Plus, Save } from 'lucide-react'
 import { toast } from 'sonner'
 
 function ConfiguracionContent() {
-  // 1. Traemos las variables con los nombres exactos del AppContext y usamos alias
   const {
     configuracion,
     updateConfiguracion: actualizarEmpresa,
@@ -16,7 +15,6 @@ function ConfiguracionContent() {
     eliminarStaff
   } = useApp()
 
-  // 2. Leemos las propiedades correctas de la base de datos (nombre_empresa y whatsapp_corporativo)
   const [nombreEmpresa, setNombreEmpresa] = useState(configuracion?.nombre_empresa || 'Bithia Brand')
   const [whatsapp, setWhatsapp] = useState(configuracion?.whatsapp_corporativo || '+51 942 275 208')
 
@@ -47,7 +45,6 @@ function ConfiguracionContent() {
 
   const handleSaveEmpresa = (e: React.FormEvent) => {
     e.preventDefault()
-    // Le enviamos los nombres exactos que espera el tipo ConfiguracionEmpresa
     actualizarEmpresa({
       nombre_empresa: nombreEmpresa,
       whatsapp_corporativo: whatsapp
@@ -61,12 +58,8 @@ function ConfiguracionContent() {
       toast.error('Completa los campos obligatorios')
       return
     }
-    agregarStaff({
-      name: nuevoNombre,
-      email: nuevoEmail,
-      password: nuevoPassword || '123456',
-      role: nuevoRol
-    })
+    // Llamada corregida con los dos argumentos que espera el contexto
+    agregarStaff(nuevoNombre, nuevoEmail)
     setNuevoNombre('')
     setNuevoEmail('')
     setNuevoPassword('')
@@ -214,18 +207,18 @@ function ConfiguracionContent() {
               <div key={member.id} className="flex items-center justify-between rounded-xl bg-muted/40 p-4 border border-border">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-primary font-bold">
-                    {member.name?.charAt(0)}
+                    {member.nombre?.charAt(0) || 'U'}
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-foreground">{member.name}</p>
+                    <p className="text-sm font-bold text-foreground">{member.nombre}</p>
                     <p className="text-xs text-muted-foreground">{member.email}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${member.role === 'ADMIN' ? 'bg-primary/10 text-primary' : 'bg-secondary text-foreground'}`}>
-                    {member.role}
+                  <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-secondary text-foreground">
+                    {member.rol}
                   </span>
-                  {member.role !== 'ADMIN' && (
+                  {member.rol !== 'admin' && member.rol !== 'ADMIN' && (
                     <button
                       onClick={() => eliminarStaff(member.id)}
                       className="p-2 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all"
