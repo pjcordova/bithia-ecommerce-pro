@@ -1,15 +1,24 @@
 "use client";
 import React, { useState, useEffect } from 'react'
 import { Layout } from '@/components/Layout'
-import { AdminRoute } from '@/components/AdminRoute'
+import { AdminRoute } from '@/components/AdminRoute' // Mantengo tus importaciones originales
 import { useApp } from '@/context/AppContext'
 import { Settings, Building, Users, Moon, Sun, Trash2, Plus, Save } from 'lucide-react'
 import { toast } from 'sonner'
 
 function ConfiguracionContent() {
-  const { empresa, actualizarEmpresa, staff, agregarStaff, eliminarStaff } = useApp()
-  const [nombreEmpresa, setNombreEmpresa] = useState(empresa?.nombre || 'Bithia Brand')
-  const [whatsapp, setWhatsapp] = useState(empresa?.whatsapp || '+51 942 275 208')
+  // 1. Traemos las variables con los nombres exactos del AppContext y usamos alias
+  const {
+    configuracion,
+    updateConfiguracion: actualizarEmpresa,
+    staffList: staff,
+    agregarStaff,
+    eliminarStaff
+  } = useApp()
+
+  // 2. Leemos las propiedades correctas de la base de datos (nombre_empresa y whatsapp_corporativo)
+  const [nombreEmpresa, setNombreEmpresa] = useState(configuracion?.nombre_empresa || 'Bithia Brand')
+  const [whatsapp, setWhatsapp] = useState(configuracion?.whatsapp_corporativo || '+51 942 275 208')
 
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
