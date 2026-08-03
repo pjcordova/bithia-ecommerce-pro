@@ -132,13 +132,14 @@ interface AppContextType {
   getStockForProduct: (productoId: string) => InventarioTalla[]
   getTotalStock: (productoId: string) => number
   getVentasStaff: (staffId: string, fecha?: string) => Venta[]
-  registrarCuadre: (cuadre: any) => void; // Interfaz limpia y correcta
+  registrarCuadre: (cuadre: any) => void
+  agregarProducto: (producto: any) => void
 }
 
 const AppContext = createContext<AppContextType | null>(null)
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [productos] = useState<Producto[]>(PRODUCTOS)
+  const [productos, setProductos] = useState<Producto[]>(PRODUCTOS)
   const [inventario, setInventario] = useState<InventarioTalla[]>(INVENTARIO)
   const [clientes, setClientes] = useState<Cliente[]>(CLIENTES)
   const [ventas, setVentas] = useState<Venta[]>(VENTAS)
@@ -256,9 +257,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return cuadre
   }, [ventas])
 
-  // Lógica faltante para registrar un cuadre directamente
   const registrarCuadre = useCallback((cuadre: any) => {
     setCuadres(prev => [cuadre, ...prev])
+  }, [])
+
+  const agregarProducto = useCallback((prodData: any) => {
+    const nuevoId = 'p' + Date.now()
+    const margen = (prodData.precio_venta || 0) - (prodData.costo_inversion || 0)
+    const productoCompleto = {
+      id: nuevoId,
+      activo: true,
+      margen_neto: margen,
+      ...prodData
+    }
+    setProductos(prev => [productoCompleto, ...prev])
   }, [])
 
   const updateConfiguracion = useCallback((config: Partial<ConfiguracionEmpresa>) => {
@@ -288,7 +300,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ajustarStock, agregarGasto, agregarCliente, enviarCuadre,
       updateConfiguracion, agregarStaff, eliminarStaff,
       getStockForProduct, getTotalStock, getVentasStaff,
-      registrarCuadre, // Aquí está la exportación que faltaba
+      registrarCuadre, agregarProducto,
     }}>
       {children}
     </AppContext.Provider>
