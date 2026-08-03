@@ -25,7 +25,7 @@ const Login: React.FC = () => {
       const found = email.toLowerCase().trim()
       router.replace(found === 'ceo@bithia.com' ? '/dashboard' : '/pos')
     } else {
-      setError(result.error || 'Error desconocido')
+      setError((result as any).error || 'Error desconocido')
     }
   }
 
