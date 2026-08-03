@@ -23,12 +23,12 @@ function FinanzasContent() {
       toast.error('Completa los campos obligatorios')
       return
     }
-    agregarGasto({
+    agregarGasto(
       descripcion,
-      monto: parseFloat(monto),
+      parseFloat(monto),
       categoria,
-      fecha: new Date().toISOString()
-    })
+      'usr-ceo-001' // ID predeterminado del admin para registrar el gasto
+    )
     toast.success('Gasto registrado con éxito')
     setIsModalOpen(false)
     setDescripcion('')
