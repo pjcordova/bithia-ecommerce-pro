@@ -22,11 +22,9 @@ const Login: React.FC = () => {
     setLoading(false)
     
     if (result && result.success) {
-      // admin goes to /dashboard, staff goes to /pos
       const found = email.toLowerCase().trim()
       router.replace(found === 'ceo@bithia.com' ? '/dashboard' : '/pos')
     } else {
-      // Mensaje directo sin tocar result.error para evitar cualquier conflicto de tipos
       setError('Correo o contraseña incorrectos')
     }
   }
@@ -34,7 +32,6 @@ const Login: React.FC = () => {
   return (
     <div className="flex min-h-screen items-center justify-center bg-bithia-bg px-4">
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="mb-10 text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-xl shadow-primary/25">
             <span className="text-2xl font-black text-white">B</span>
@@ -43,7 +40,6 @@ const Login: React.FC = () => {
           <p className="mt-1 text-sm text-bithia-silver">ERP &amp; Punto de Venta</p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="rounded-3xl bg-white p-8 shadow-xl shadow-black/5 border border-border/50">
           <h2 className="mb-6 text-lg font-bold text-foreground">Iniciar Sesión</h2>
 
@@ -107,7 +103,6 @@ const Login: React.FC = () => {
             </button>
           </div>
 
-          {/* Demo credentials */}
           <div className="mt-6 rounded-xl bg-muted p-4">
             <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-bithia-silver">Credenciales Demo</p>
             <div className="space-y-1.5 text-xs">
