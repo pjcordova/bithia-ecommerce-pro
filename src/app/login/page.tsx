@@ -18,14 +18,14 @@ const Login: React.FC = () => {
     setError('')
     setLoading(true)
 
-    const result = await login(email, password)
+    const result = (await login(email, password)) as { success: boolean; error?: string }
     setLoading(false)
     if (result.success) {
       // admin goes to /dashboard, staff goes to /pos
       const found = email.toLowerCase().trim()
       router.replace(found === 'ceo@bithia.com' ? '/dashboard' : '/pos')
     } else {
-      setError((result as any).error || 'Error desconocido')
+      setError(result.error || 'Error desconocido')
     }
   }
 
