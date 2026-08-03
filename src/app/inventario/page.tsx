@@ -1,13 +1,14 @@
 "use client";
 import React, { useState, useMemo } from 'react'
-import Link from 'next/link' // Importamos Link para la navegación en Next.js
+import Link from 'next/link'
 import { Layout } from '@/components/Layout'
 import { useApp } from '@/context/AppContext'
-import { Package, Search, Plus, AlertTriangle, Tag, ScanLine } from 'lucide-react' // Agregamos ScanLine
+import { Package, Search, Plus, AlertTriangle, Tag, ScanLine } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function InventarioPage() {
-  const { inventario, agregarProducto } = useApp()
+  // 1. Añadimos 'productos' al hook useApp para poder cruzar los nombres y categorías
+  const { inventario, productos, agregarProducto } = useApp()
   const [busqueda, setBusqueda] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('TODAS')
 
@@ -23,13 +24,18 @@ export default function InventarioPage() {
 
   const productosFiltrados = useMemo(() => {
     return inventario.filter(item => {
-      const itemNombre = item.nombre?.toLowerCase() || ''
-      const itemSku = item.sku?.toLowerCase() || ''
+      // 2. Buscamos el producto padre utilizando el producto_id del inventario
+      const productoAsociado = productos.find(p => p.id === item.producto_id)
+
+      const itemNombre = productoAsociado?.nombre?.toLowerCase() || ''
+      const itemSku = productoAsociado?.categoria?.toLowerCase() || ''
+
       const matchText = itemNombre.includes(busqueda.toLowerCase()) || itemSku.includes(busqueda.toLowerCase())
-      const matchCat = filtroCategoria === 'TODAS' || item.categoria === filtroCategoria
+      const matchCat = filtroCategoria === 'TODAS' || productoAsociado?.categoria === filtroCategoria
+
       return matchText && matchCat
     })
-  }, [inventario, busqueda, filtroCategoria])
+  }, [inventario, productos, busqueda, filtroCategoria])
 
   const handleCrearProducto = (e: React.FormEvent) => {
     e.preventDefault()
@@ -66,7 +72,6 @@ export default function InventarioPage() {
             <p className="text-sm text-muted-foreground mt-0.5">Control global de prendas, tallas, costos y existencias en boutique.</p>
           </div>
 
-          {/* AQUÍ ESTÁN LOS DOS BOTONES JUNTOS */}
           <div className="flex items-center gap-3">
             <Link
               href="/inventario/recepcion"
@@ -132,20 +137,23 @@ export default function InventarioPage() {
                   </tr>
                 ) : (
                   productosFiltrados.map(item => {
-                    const precioSeguro = Number(item.precio || 0)
+                    // 3. Obtenemos la información real del producto asociado para mostrar sus datos en la tabla
+                    const productoAsociado = productos.find(p => p.id === item.producto_id)
+                    const precioSeguro = Number(productoAsociado?.precio_venta || item.precio || 0)
                     const cantidadSegura = Number(item.cantidad || 0)
+
                     return (
                       <tr key={item.id} className="hover:bg-muted/30 transition-colors">
                         <td className="py-4 px-6 font-semibold text-foreground flex items-center gap-3">
                           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                             <Package className="h-4 w-4" />
                           </div>
-                          {item.nombre || 'Sin nombre'}
+                          {productoAsociado?.nombre || item.nombre || 'Sin nombre'}
                         </td>
-                        <td className="py-4 px-4 text-muted-foreground font-mono text-xs">{item.sku || 'N/A'}</td>
+                        <td className="py-4 px-4 text-muted-foreground font-mono text-xs">{productoAsociado?.sku || item.sku || 'N/A'}</td>
                         <td className="py-4 px-4">
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-foreground">
-                            <Tag className="h-3 w-3" /> {item.categoria || 'General'}
+                            <Tag className="h-3 w-3" /> {productoAsociado?.categoria || item.categoria || 'General'}
                           </span>
                         </td>
                         <td className="py-4 px-4 font-bold text-foreground">{item.talla || 'Única'}</td>
