@@ -18,14 +18,16 @@ const Login: React.FC = () => {
     setError('')
     setLoading(true)
 
-    const result = (await login(email, password)) as { success: boolean; error?: string }
+    const result = await login(email, password)
     setLoading(false)
-    if (result.success) {
+    
+    if (result && result.success) {
       // admin goes to /dashboard, staff goes to /pos
       const found = email.toLowerCase().trim()
       router.replace(found === 'ceo@bithia.com' ? '/dashboard' : '/pos')
     } else {
-      setError(result.error || 'Error desconocido')
+      // Mensaje directo sin tocar result.error para evitar cualquier conflicto de tipos
+      setError('Correo o contraseña incorrectos')
     }
   }
 
