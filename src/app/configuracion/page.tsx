@@ -47,7 +47,11 @@ function ConfiguracionContent() {
 
   const handleSaveEmpresa = (e: React.FormEvent) => {
     e.preventDefault()
-    actualizarEmpresa({ nombre: nombreEmpresa, whatsapp })
+    // Le enviamos los nombres exactos que espera el tipo ConfiguracionEmpresa
+    actualizarEmpresa({
+      nombre_empresa: nombreEmpresa,
+      whatsapp_corporativo: whatsapp
+    })
     toast.success('Ajustes de empresa guardados')
   }
 
