@@ -13,7 +13,7 @@ export default function PosPage() {
   const [metodoPago, setMetodoPago] = useState('Efectivo')
 
   const productosDisponibles = useMemo(() => {
-    return inventario.filter(item => {
+    return inventario.filter((item: any) => {
       const nombre = item.nombre?.toLowerCase() || ''
       const sku = item.sku?.toLowerCase() || ''
       return (nombre.includes(busqueda.toLowerCase()) || sku.includes(busqueda.toLowerCase())) && Number(item.cantidad || 0) > 0
@@ -94,7 +94,7 @@ export default function PosPage() {
                 No hay productos disponibles en stock.
               </div>
             ) : (
-              productosDisponibles.map(prod => {
+              productosDisponibles.map((prod: any) => {
                 const precio = Number(prod.precio || 0)
                 const stock = Number(prod.cantidad || 0)
                 return (

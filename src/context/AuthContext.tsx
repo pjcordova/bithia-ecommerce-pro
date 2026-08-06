@@ -13,8 +13,7 @@ type User = {
 type AuthContextType = {
   user: User | null;
   loading: boolean;
-  // Modificamos esto para que devuelva un objeto con la propiedad "success"
-  login: (email: string, password: string) => Promise<{ success: boolean }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 };
 
@@ -30,25 +29,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      if (email === 'ceo@bithia.com' && password === 'admin123') {
+      const cleanEmail = email.toLowerCase().trim();
+
+      if (cleanEmail === 'ceo@bithia.com' && password === 'admin123') {
         setUser({ id: 'admin-1', name: 'CEO Bithia', email: 'ceo@bithia.com', role: 'ADMIN' });
         toast.success('¡Bienvenido de vuelta, CEO!');
-        router.push('/pos');
-        return { success: true }; // <-- Aquí está la magia
+        return { success: true };
       }
 
-      if (email === 'staff@bithia.com' && password === 'staff123') {
+      if (cleanEmail === 'staff@bithia.com' && password === 'staff123') {
         setUser({ id: 'staff-1', name: 'Staff Bithia', email: 'staff@bithia.com', role: 'USER' });
         toast.success('¡Turno iniciado con éxito!');
-        router.push('/pos');
-        return { success: true }; // <-- Y aquí también
+        return { success: true };
       }
 
       toast.error('Credenciales incorrectas');
-      return { success: false };
+      return { success: false, error: 'Correo o contraseña incorrectos' };
     } catch (error) {
       toast.error('Error al iniciar sesión');
-      return { success: false };
+      return { success: false, error: 'Ocurrió un error inesperado al iniciar sesión' };
     } finally {
       setLoading(false);
     }

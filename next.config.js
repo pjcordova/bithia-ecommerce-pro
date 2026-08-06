@@ -1,8 +1,12 @@
+///** @type {import('next').NextConfig} */
+//const nextConfig = {
+//  typescript: {
+//    ignoreBuildErrors: true,
+//  },
+//};
+
+//module.exports = nextConfig;
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-};
+const nextConfig = {};
 
 module.exports = nextConfig;
