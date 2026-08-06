@@ -6,7 +6,7 @@ import { ShoppingCart, Search, Plus, Minus, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function PosPage() {
-  const { inventario, clientes, registrarVenta } = (useApp() as any)
+  const { inventario, clientes, registrarVenta } = ((useApp() as any) as any)
   const [busqueda, setBusqueda] = useState('')
   const [carrito, setCarrito] = useState<Array<{ productoId: string; nombre: string; precio: number; cantidad: number; stockMax: number }>>([])
   const [clienteId, setClienteId] = useState('')
