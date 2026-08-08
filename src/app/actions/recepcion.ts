@@ -10,7 +10,8 @@ export async function obtenerProductosInventario() {
             orderBy: { created_at: 'desc' }
         })
 
-        const productos = productosRaw.map(p => ({
+        // Solución: Añadir tipado explícito (p: any) para evitar el error de TypeScript en el build
+        const productos = productosRaw.map((p: any) => ({
             ...p,
             costo_inversion: Number(p.costo_inversion),
             precio_venta: Number(p.precio_venta),
@@ -60,13 +61,11 @@ export async function registrarRecepcionMercaderia(data: {
     try {
         const { codigo_barras, nombre, categoria, color_principal, costo_inversion, precio_venta, imagen_url, tallas } = data
 
-        // Generar código de lote inteligente (Ej: BLU-2608-01)
         const now = new Date()
         const anio = now.getFullYear().toString().slice(-2)
         const mes = (now.getMonth() + 1).toString().padStart(2, '0')
         const catPrefijo = categoria ? categoria.substring(0, 3).toUpperCase() : 'GEN'
 
-        // Contar cuántos registros hay en el mes para el correlativo del lote
         const totalLotesMes = await prisma.productos.count({
             where: {
                 categoria,
@@ -92,7 +91,7 @@ export async function registrarRecepcionMercaderia(data: {
                     costo_inversion,
                     precio_venta,
                     imagen_url: imagen_url || null,
-                    lote: numeroLote, // <-- Aquí guardamos el lote de forma permanente
+                    lote: numeroLote,
                     inventario_tallas: {
                         create: tallas.map(t => ({
                             talla: t.talla.toUpperCase(),
