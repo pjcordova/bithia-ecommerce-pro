@@ -1,12 +1,11 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client';
 
-// Previene múltiples instancias de Prisma Client en desarrollo
-const globalForPrisma = global as unknown as { prisma: PrismaClient }
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 export const prisma =
     globalForPrisma.prisma ||
     new PrismaClient({
-        log: ['query'], // Opcional: te mostrará las consultas SQL en la terminal
-    })
+        log: ['query'], // Esto te ayudará a ver en la terminal qué está pasando
+    });
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
