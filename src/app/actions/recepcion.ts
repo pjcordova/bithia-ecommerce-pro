@@ -3,12 +3,43 @@
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 
+export async function obtenerProductosInventario() {
+    try {
+        const productosRaw = await prisma.productos.findMany({
+            include: { inventario_tallas: true },
+            orderBy: { created_at: 'desc' }
+        })
+
+        const productos = productosRaw.map(p => ({
+            ...p,
+            costo_inversion: Number(p.costo_inversion),
+            precio_venta: Number(p.precio_venta),
+            margen_neto: p.margen_neto ? Number(p.margen_neto) : 0,
+        }))
+
+        return { success: true, productos }
+    } catch (error) {
+        console.error("Error al obtener inventario:", error)
+        return { success: false, productos: [] }
+    }
+}
+
 export async function buscarProductoPorCodigo(codigo_barras: string) {
     try {
-        const producto = await prisma.productos.findUnique({
+        const productoRaw = await prisma.productos.findUnique({
             where: { codigo_barras },
             include: { inventario_tallas: true }
         })
+
+        if (!productoRaw) return { success: true, producto: null }
+
+        const producto = {
+            ...productoRaw,
+            costo_inversion: Number(productoRaw.costo_inversion),
+            precio_venta: Number(productoRaw.precio_venta),
+            margen_neto: productoRaw.margen_neto ? Number(productoRaw.margen_neto) : 0,
+        }
+
         return { success: true, producto }
     } catch (error) {
         console.error("Error al buscar producto por código:", error)
@@ -23,18 +54,35 @@ export async function registrarRecepcionMercaderia(data: {
     color_principal: string
     costo_inversion: number
     precio_venta: number
+    imagen_url?: string
     tallas: { talla: string; cantidad: number }[]
 }) {
     try {
-        const { codigo_barras, nombre, categoria, color_principal, costo_inversion, precio_venta, tallas } = data
+        const { codigo_barras, nombre, categoria, color_principal, costo_inversion, precio_venta, imagen_url, tallas } = data
 
-        // 1. Buscar si ya existe por código EAN
+        // Generar código de lote inteligente (Ej: BLU-2608-01)
+        const now = new Date()
+        const anio = now.getFullYear().toString().slice(-2)
+        const mes = (now.getMonth() + 1).toString().padStart(2, '0')
+        const catPrefijo = categoria ? categoria.substring(0, 3).toUpperCase() : 'GEN'
+
+        // Contar cuántos registros hay en el mes para el correlativo del lote
+        const totalLotesMes = await prisma.productos.count({
+            where: {
+                categoria,
+                created_at: {
+                    gte: new Date(now.getFullYear(), now.getMonth(), 1)
+                }
+            }
+        })
+        const correlativo = (totalLotesMes + 1).toString().padStart(2, '0')
+        const numeroLote = `${catPrefijo}-${anio}${mes}-${correlativo}`
+
         let producto = codigo_barras
             ? await prisma.productos.findUnique({ where: { codigo_barras }, include: { inventario_tallas: true } })
             : null
 
         if (!producto) {
-            // CREAR PRODUCTO NUEVO E INVENTARIO DE TALLAS
             producto = await prisma.productos.create({
                 data: {
                     codigo_barras: codigo_barras || null,
@@ -43,6 +91,8 @@ export async function registrarRecepcionMercaderia(data: {
                     color_principal,
                     costo_inversion,
                     precio_venta,
+                    imagen_url: imagen_url || null,
+                    lote: numeroLote, // <-- Aquí guardamos el lote de forma permanente
                     inventario_tallas: {
                         create: tallas.map(t => ({
                             talla: t.talla.toUpperCase(),
@@ -53,10 +103,13 @@ export async function registrarRecepcionMercaderia(data: {
                 include: { inventario_tallas: true }
             })
         } else {
-            // PRODUCTO EXISTENTE: Actualizar costos/precios y sumar stock por talla
             await prisma.productos.update({
                 where: { id: producto.id },
-                data: { costo_inversion, precio_venta }
+                data: {
+                    costo_inversion,
+                    precio_venta,
+                    imagen_url: imagen_url || producto.imagen_url
+                }
             })
 
             for (const t of tallas) {
@@ -66,13 +119,11 @@ export async function registrarRecepcionMercaderia(data: {
                 )
 
                 if (tallaExistente) {
-                    // Sumar al stock existente de esa talla
                     await prisma.inventario_tallas.update({
                         where: { id: tallaExistente.id },
                         data: { cantidad: tallaExistente.cantidad + t.cantidad }
                     })
                 } else {
-                    // Si llegó en una talla nueva que no se registraba antes para este modelo
                     await prisma.inventario_tallas.create({
                         data: {
                             producto_id: producto.id,
@@ -85,7 +136,8 @@ export async function registrarRecepcionMercaderia(data: {
         }
 
         revalidatePath('/inventario')
-        return { success: true, message: "¡Stock de mercadería actualizado correctamente en Ica!" }
+        revalidatePath('/inventario/recepcion')
+        return { success: true, message: `¡Mercadería registrada con éxito bajo el Lote ${numeroLote}!` }
     } catch (error) {
         console.error("Error al registrar recepción:", error)
         return { success: false, error: "Hubo un error al registrar la recepción de mercadería." }

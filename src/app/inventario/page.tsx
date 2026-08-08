@@ -1,17 +1,23 @@
 "use client";
-import React, { useState, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import Barcode from 'react-barcode'
 import { Layout } from '@/components/Layout'
-import { useApp } from '@/context/AppContext'
-import { Package, Search, Plus, AlertTriangle, Tag, ScanLine } from 'lucide-react'
+import { obtenerProductosInventario, registrarRecepcionMercaderia } from '@/app/actions/recepcion'
+import { Package, Search, Plus, AlertTriangle, Tag, ScanLine, Download, Printer, Barcode as BarcodeIcon, Image as ImageIcon, Eye, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function InventarioPage() {
-  const { inventario, agregarProducto } = useApp()
+  const [inventario, setInventario] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('TODAS')
 
-  // Modal state
+  // Paginación
+  const [paginaActual, setPaginaActual] = useState(1)
+  const elementosPorPagina = 10
+
+  // Modal Carga Manual
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [nombre, setNombre] = useState('')
   const [sku, setSku] = useState('')
@@ -20,42 +26,159 @@ export default function InventarioPage() {
   const [precio, setPrecio] = useState('')
   const [costo, setCosto] = useState('')
   const [cantidad, setCantidad] = useState('')
+  const [imagenUrl, setImagenUrl] = useState('')
+  const [uploadingImage, setUploadingImage] = useState(false)
 
+  // Modal Etiqueta / Código de Barras
+  const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
+
+  // Modal Detalle Ampliado de Prenda
+  const [detalleModalOpen, setDetalleModalOpen] = useState(false)
+  const [productoSeleccionado, setProductoSeleccionado] = useState<any>(null)
+
+  const cargarInventario = async () => {
+    setLoading(true)
+    const res = await obtenerProductosInventario()
+    if (res.success) {
+      setInventario(res.productos)
+    } else {
+      toast.error('Error al cargar el inventario desde Railway')
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    cargarInventario()
+  }, [])
+
+  // Filtrado de productos
   const productosFiltrados = useMemo(() => {
     return inventario.filter(item => {
-      const itemObj = item as any
-      const itemNombre = itemObj.nombre?.toLowerCase() || ''
-      const itemSku = itemObj.sku?.toLowerCase() || ''
-      const matchText = itemNombre.includes(busqueda.toLowerCase()) || itemSku.includes(busqueda.toLowerCase())
-      const matchCat = filtroCategoria === 'TODAS' || itemObj.categoria === filtroCategoria
+      const itemNombre = item.nombre?.toLowerCase() || ''
+      const itemCodigo = item.codigo_barras?.toLowerCase() || ''
+      const matchText = itemNombre.includes(busqueda.toLowerCase()) || itemCodigo.includes(busqueda.toLowerCase())
+      const matchCat = filtroCategoria === 'TODAS' || item.categoria === filtroCategoria
       return matchText && matchCat
     })
   }, [inventario, busqueda, filtroCategoria])
 
-  const handleCrearProducto = (e: React.FormEvent) => {
+  // Resetear a la página 1 cuando cambie la búsqueda o el filtro
+  useEffect(() => {
+    setPaginaActual(1)
+  }, [busqueda, filtroCategoria])
+
+  // Productos paginados para renderizar solo 10 a la vez
+  const { productosPaginados, totalPaginas } = useMemo(() => {
+    const total = Math.ceil(productosFiltrados.length / elementosPorPagina) || 1
+    const inicio = (paginaActual - 1) * elementosPorPagina
+    const fin = inicio + elementosPorPagina
+    return {
+      productosPaginados: productosFiltrados.slice(inicio, fin),
+      totalPaginas: total
+    }
+  }, [productosFiltrados, paginaActual])
+
+  // Subida de imagen a Cloudinary (Cloud Name: rrh7xuqq)
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadingImage(true)
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('upload_preset', 'bithia_preset')
+
+    try {
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/rrh7xuqq/image/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      )
+      const data = await res.json()
+      if (data.secure_url) {
+        setImagenUrl(data.secure_url)
+        toast.success('Imagen subida a la nube correctamente')
+      } else {
+        toast.error(data.error?.message || 'Error al subir la imagen a Cloudinary')
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error('Error de conexión al subir la imagen')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleCrearProducto = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!nombre || !precio || !cantidad) {
       toast.error('Por favor completa los campos obligatorios')
       return
     }
 
-    agregarProducto({
+    const res = await registrarRecepcionMercaderia({
+      codigo_barras: sku || `SKU-${Math.floor(Math.random() * 90000 + 10000)}`,
       nombre,
-      sku: sku || `SKU-${Math.floor(Math.random() * 90000 + 10000)}`,
       categoria,
-      talla,
-      precio_venta: parseFloat(precio),
+      color_principal: 'General',
       costo_inversion: parseFloat(costo) || 0,
-      cantidad: parseInt(cantidad)
+      precio_venta: parseFloat(precio),
+      imagen_url: imagenUrl || undefined,
+      tallas: [{ talla, cantidad: parseInt(cantidad) }]
     })
 
-    toast.success('Producto agregado al inventario con éxito')
-    setIsModalOpen(false)
-    setNombre('')
-    setSku('')
-    setPrecio('')
-    setCosto('')
-    setCantidad('')
+    if (res.success) {
+      toast.success(res.message || 'Prenda registrada con éxito')
+      setIsModalOpen(false)
+      setNombre('')
+      setSku('')
+      setPrecio('')
+      setCosto('')
+      setCantidad('')
+      setImagenUrl('')
+      cargarInventario()
+    } else {
+      toast.error(res.error || 'Error al guardar la prenda')
+    }
+  }
+
+  // Exportar a CSV ordenado
+  const exportarCSV = () => {
+    if (productosFiltrados.length === 0) {
+      toast.warning('No hay datos para exportar')
+      return
+    }
+
+    const headers = ['Nombre', 'Código / EAN', 'Lote', 'Categoría', 'Precio Venta (S/.)', 'Costo Inversión (S/.)', 'Margen (S/.)', 'Stock Total', 'Desglose Tallas']
+    const rows = productosFiltrados.map(item => {
+      const totalStock = item.inventario_tallas?.reduce((acc: number, t: any) => acc + t.cantidad, 0) || 0
+      const tallasString = item.inventario_tallas?.map((t: any) => `${t.talla}: ${t.cantidad}`).join(' | ') || 'Sin tallas'
+      const margen = Number(item.precio_venta || 0) - Number(item.costo_inversion || 0)
+
+      return [
+        `"${item.nombre}"`,
+        `"${item.codigo_barras || 'N/A'}"`,
+        `"${item.lote || 'N/A'}"`,
+        `"${item.categoria}"`,
+        Number(item.precio_venta || 0).toFixed(2),
+        Number(item.costo_inversion || 0).toFixed(2),
+        margen.toFixed(2),
+        totalStock,
+        `"${tallasString}"`
+      ]
+    })
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n")
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement("a")
+    link.setAttribute("href", encodedUri)
+    link.setAttribute("download", `inventario_bithia_${new Date().toISOString().split('T')[0]}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    toast.success('Reporte de inventario exportado con éxito')
   }
 
   return (
@@ -67,7 +190,13 @@ export default function InventarioPage() {
             <p className="text-sm text-muted-foreground mt-0.5">Control global de prendas, tallas, costos y existencias en boutique.</p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={exportarCSV}
+              className="flex items-center justify-center gap-2 rounded-xl bg-card border border-border px-4 py-2.5 text-sm font-bold text-foreground shadow-sm hover:bg-muted/50 transition-all"
+            >
+              <Download className="h-4 w-4" /> Exportar CSV
+            </button>
             <Link
               href="/inventario/recepcion"
               className="flex items-center justify-center gap-2 rounded-xl bg-secondary px-4 py-2.5 text-sm font-bold text-foreground shadow-sm hover:opacity-95 transition-all"
@@ -89,7 +218,7 @@ export default function InventarioPage() {
             <Search className="absolute left-3.5 top-3 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Buscar por nombre o SKU..."
+              placeholder="Buscar por nombre o código de barras..."
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
               className="w-full rounded-xl border border-border bg-card pl-10 pr-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
@@ -108,61 +237,105 @@ export default function InventarioPage() {
           </select>
         </div>
 
-        {/* Tabla de Inventario */}
-        <div className="rounded-2xl bg-card shadow-sm border border-border overflow-hidden">
+        {/* Tabla de Inventario con Paginación */}
+        <div className="rounded-2xl bg-card shadow-sm border border-border overflow-hidden flex flex-col justify-between">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-border bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="py-3 px-6">Producto</th>
-                  <th className="py-3 px-4">SKU</th>
+                  <th className="py-3 px-4">Código / EAN / Lote</th>
                   <th className="py-3 px-4">Categoría</th>
-                  <th className="py-3 px-4">Talla</th>
+                  <th className="py-3 px-4">Tallas y Stock</th>
                   <th className="py-3 px-4 text-right">Precio Venta</th>
-                  <th className="py-3 px-4 text-right">Stock</th>
-                  <th className="py-3 px-6 text-center">Estado</th>
+                  <th className="py-3 px-4 text-right">Stock Total</th>
+                  <th className="py-3 px-6 text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-sm">
-                {productosFiltrados.length === 0 ? (
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                      Sincronizando inventario con la nube...
+                    </td>
+                  </tr>
+                ) : productosPaginados.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-muted-foreground">
                       No se encontraron prendas registradas en el inventario.
                     </td>
                   </tr>
                 ) : (
-                  productosFiltrados.map(item => {
-                    const itemObj = item as any
-                    const precioSeguro = Number(itemObj.precio || itemObj.precio_venta || 0)
-                    const cantidadSegura = Number(itemObj.cantidad || 0)
+                  productosPaginados.map(item => {
+                    const precioSeguro = Number(item.precio_venta || 0)
+                    const totalStock = item.inventario_tallas?.reduce((acc: number, t: any) => acc + t.cantidad, 0) || 0
 
                     return (
-                      <tr key={itemObj.id} className="hover:bg-muted/30 transition-colors">
+                      <tr key={item.id} className="hover:bg-muted/30 transition-colors">
                         <td className="py-4 px-6 font-semibold text-foreground flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <Package className="h-4 w-4" />
-                          </div>
-                          {itemObj.nombre || 'Sin nombre'}
-                        </td>
-                        <td className="py-4 px-4 text-muted-foreground font-mono text-xs">{itemObj.sku || 'N/A'}</td>
-                        <td className="py-4 px-4">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-foreground">
-                            <Tag className="h-3 w-3" /> {itemObj.categoria || 'General'}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 font-bold text-foreground">{itemObj.talla || 'Única'}</td>
-                        <td className="py-4 px-4 text-right font-bold text-foreground">S/ {precioSeguro.toFixed(2)}</td>
-                        <td className="py-4 px-4 text-right font-extrabold text-foreground">{cantidadSegura}</td>
-                        <td className="py-4 px-6 text-center">
-                          {cantidadSegura <= 3 ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-destructive/10 text-destructive">
-                              <AlertTriangle className="h-3 w-3" /> Bajo Stock
-                            </span>
+                          {item.imagen_url ? (
+                            <img src={item.imagen_url} alt={item.nombre} className="h-10 w-10 rounded-xl object-cover border border-border shadow-sm" />
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-success/10 text-success">
-                              Disponible
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                              <Package className="h-5 w-5" />
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-bold text-foreground">{item.nombre || 'Sin nombre'}</p>
+                            <p className="text-xs text-muted-foreground">Inversión: S/ {Number(item.costo_inversion || 0).toFixed(2)}</p>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="font-mono text-xs text-foreground font-bold">{item.codigo_barras || 'N/A'}</div>
+                          {item.lote && (
+                            <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-primary/10 text-primary font-mono">
+                              Lote: {item.lote}
                             </span>
                           )}
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-foreground">
+                            <Tag className="h-3 w-3" /> {item.categoria || 'General'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {item.inventario_tallas?.map((t: any) => (
+                              <span key={t.id} className="px-2 py-0.5 bg-muted rounded text-xs font-bold text-foreground">
+                                {t.talla}: {t.cantidad}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-right font-bold text-foreground">S/ {precioSeguro.toFixed(2)}</td>
+                        <td className="py-4 px-4 text-right">
+                          <span className={`font-extrabold ${totalStock <= 3 ? 'text-destructive' : 'text-foreground'}`}>
+                            {totalStock} {totalStock <= 3 && '⚠️'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                setProductoSeleccionado(item)
+                                setDetalleModalOpen(true)
+                              }}
+                              title="Ver Detalle y Foto"
+                              className="p-2 rounded-xl bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground transition-all inline-flex items-center gap-1 text-xs font-bold"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setProductoSeleccionado(item)
+                                setEtiquetaModalOpen(true)
+                              }}
+                              title="Generar Etiqueta"
+                              className="p-2 rounded-xl bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground transition-all inline-flex items-center gap-1 text-xs font-bold"
+                            >
+                              <BarcodeIcon className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -171,42 +344,81 @@ export default function InventarioPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Barra de Paginación Inferior */}
+          {!loading && productosFiltrados.length > 0 && (
+            <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-muted/20">
+              <p className="text-xs font-medium text-muted-foreground">
+                Mostrando <span className="font-bold text-foreground">{((paginaActual - 1) * elementosPorPagina) + 1}</span> a <span className="font-bold text-foreground">{Math.min(paginaActual * elementosPorPagina, productosFiltrados.length)}</span> de <span className="font-bold text-foreground">{productosFiltrados.length}</span> prendas
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPaginaActual(prev => Math.max(prev - 1, 1))}
+                  disabled={paginaActual === 1}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-border bg-card text-xs font-bold text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Anterior
+                </button>
+                <span className="text-xs font-bold px-3 py-1 bg-secondary text-foreground rounded-xl">
+                  Página {paginaActual} de {totalPaginas}
+                </span>
+                <button
+                  onClick={() => setPaginaActual(prev => Math.min(prev + 1, totalPaginas))}
+                  disabled={paginaActual === totalPaginas}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-border bg-card text-xs font-bold text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                >
+                  Siguiente <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Modal Nuevo Producto */}
+        {/* Modal Carga Manual */}
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl border border-border animate-scale-in">
-              <h3 className="text-lg font-bold text-foreground mb-4">Registrar Nueva Prenda</h3>
-              <form onSubmit={handleCrearProducto} className="space-y-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
+            <div className="w-full max-w-lg rounded-3xl bg-background border border-border p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-4 mb-6 border-b border-border">
+                <h3 className="text-xl font-extrabold text-foreground">Registrar Nueva Prenda</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground font-bold transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleCrearProducto} className="space-y-5">
                 <div>
-                  <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Nombre del Producto *</label>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Nombre del Producto *</label>
                   <input
                     type="text"
                     required
                     placeholder="Ej. Vestido Elegante Nude"
                     value={nombre}
                     onChange={e => setNombre(e.target.value)}
-                    className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">SKU / Código</label>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Código / SKU</label>
                     <input
                       type="text"
-                      placeholder="Ej. VEST-001"
+                      placeholder="Auto-generar si está vacío"
                       value={sku}
                       onChange={e => setSku(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm font-mono text-xs"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Categoría</label>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Categoría</label>
                     <select
                       value={categoria}
                       onChange={e => setCategoria(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
                     >
                       <option value="Blusas">Blusas</option>
                       <option value="Pantalones">Pantalones</option>
@@ -215,13 +427,41 @@ export default function InventarioPage() {
                     </select>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Fotografía de la Prenda</label>
+                  <div className="flex items-center gap-4">
+                    {imagenUrl ? (
+                      <div className="relative h-20 w-20 rounded-2xl overflow-hidden border border-border shadow-sm group">
+                        <img src={imagenUrl} alt="Preview" className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setImagenUrl('')}
+                          className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-2xl p-6 cursor-pointer hover:border-primary transition-all bg-card/50">
+                        <ImageIcon className="h-6 w-6 text-muted-foreground mb-1" />
+                        <span className="text-xs font-bold text-foreground">
+                          {uploadingImage ? 'Subiendo a Cloudinary...' : 'Haz clic para seleccionar o tomar foto'}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground mt-0.5">PNG, JPG o WEBP</span>
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" disabled={uploadingImage} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Talla</label>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Talla</label>
                     <select
                       value={talla}
                       onChange={e => setTalla(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
                     >
                       <option value="XS">XS</option>
                       <option value="S">S</option>
@@ -232,7 +472,18 @@ export default function InventarioPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Precio S/ *</label>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Costo (S/.)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="25.00"
+                      value={costo}
+                      onChange={e => setCosto(e.target.value)}
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Precio (S/.) *</label>
                     <input
                       type="number"
                       step="0.1"
@@ -240,32 +491,35 @@ export default function InventarioPage() {
                       placeholder="49.90"
                       value={precio}
                       onChange={e => setPrecio(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Stock Inicial *</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="10"
-                      value={cantidad}
-                      onChange={e => setCantidad(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
                     />
                   </div>
                 </div>
-                <div className="flex justify-end gap-3 pt-4 border-t border-border">
+
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Stock Inicial *</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="10"
+                    value={cantidad}
+                    onChange={e => setCantidad(e.target.value)}
+                    className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-6 border-t border-border mt-6">
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted transition-all"
+                    className="rounded-2xl px-5 py-3 text-sm font-bold text-muted-foreground hover:bg-muted transition-all"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md shadow-primary/20 hover:opacity-95 transition-all"
+                    disabled={uploadingImage}
+                    className="rounded-2xl bg-primary px-6 py-3 text-sm font-extrabold text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95 transition-all disabled:opacity-50"
                   >
                     Guardar Prenda
                   </button>
@@ -274,6 +528,152 @@ export default function InventarioPage() {
             </div>
           </div>
         )}
+
+        {/* Modal Detalle Ampliado */}
+        {detalleModalOpen && productoSeleccionado && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
+            <div className="w-full max-w-xl rounded-3xl bg-background border border-border p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-4 mb-6 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <span className="p-2 rounded-xl bg-primary/10 text-primary">
+                    <Package className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h3 className="text-xl font-extrabold text-foreground">{productoSeleccionado.nombre}</h3>
+                    <p className="text-xs text-muted-foreground font-mono">SKU: {productoSeleccionado.codigo_barras || 'N/A'}</p>
+                    {productoSeleccionado.lote && (
+                      <p className="text-xs text-primary font-bold font-mono mt-0.5">Lote de Ingreso: {productoSeleccionado.lote}</p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetalleModalOpen(false)}
+                  className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground font-bold transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex flex-col items-center justify-center bg-muted/40 rounded-2xl p-4 border border-border/60 min-h-[220px]">
+                  {productoSeleccionado.imagen_url ? (
+                    <img
+                      src={productoSeleccionado.imagen_url}
+                      alt={productoSeleccionado.nombre}
+                      className="max-h-[240px] w-full object-cover rounded-xl shadow-md border border-border"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-muted-foreground">
+                      <ImageIcon className="h-12 w-12 mb-2 opacity-50" />
+                      <p className="text-xs font-medium">Sin fotografía registrada</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Categoría</span>
+                      <p className="text-sm font-bold text-foreground mt-0.5 flex items-center gap-1.5">
+                        <Tag className="h-3.5 w-3.5 text-primary" /> {productoSeleccionado.categoria}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Costo Inversión</span>
+                        <p className="text-sm font-bold text-foreground mt-0.5">S/ {Number(productoSeleccionado.costo_inversion || 0).toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Precio Venta</span>
+                        <p className="text-base font-black text-primary mt-0.5">S/ {Number(productoSeleccionado.precio_venta || 0).toFixed(2)}</p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-border">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Margen de Ganancia Neto</span>
+                      <p className="text-sm font-extrabold text-emerald-600 mt-0.5 flex items-center gap-1">
+                        <TrendingUp className="h-4 w-4" />
+                        S/ {(Number(productoSeleccionado.precio_venta || 0) - Number(productoSeleccionado.costo_inversion || 0)).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Desglose de Stock por Tallas</span>
+                    <div className="flex flex-wrap gap-2">
+                      {productoSeleccionado.inventario_tallas?.map((t: any) => (
+                        <div key={t.id} className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold text-foreground flex items-center gap-1.5 shadow-sm">
+                          <span>{t.talla}:</span>
+                          <span className="text-primary font-extrabold">{t.cantidad} un.</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-6 border-t border-border mt-6">
+                <button
+                  type="button"
+                  onClick={() => setDetalleModalOpen(false)}
+                  className="rounded-2xl bg-secondary px-6 py-2.5 text-xs font-bold text-foreground hover:opacity-90 transition-all"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Etiqueta */}
+        {etiquetaModalOpen && productoSeleccionado && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
+            <div className="w-full max-w-sm rounded-3xl bg-white border border-border p-8 text-black shadow-2xl relative text-center">
+              <h4 className="font-extrabold text-lg text-slate-900 mb-0.5">BITHIA BRAND</h4>
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-4">Etiqueta de Prenda</p>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-6 flex flex-col items-center">
+                <p className="font-bold text-slate-800 text-sm mb-1">{productoSeleccionado.nombre}</p>
+                <p className="text-xs text-slate-500 mb-3">Categoría: {productoSeleccionado.categoria}</p>
+
+                <div className="my-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full flex justify-center">
+                  <Barcode
+                    value={productoSeleccionado.codigo_barras || "BITHIA-001"}
+                    width={1.4}
+                    height={45}
+                    fontSize={11}
+                    background="#ffffff"
+                    lineColor="#0f172a"
+                  />
+                </div>
+
+                <div className="text-xl font-black text-slate-900 tracking-tight mt-2">
+                  S/ {Number(productoSeleccionado.precio_venta).toFixed(2)}
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEtiquetaModalOpen(false)}
+                  className="flex-1 rounded-xl bg-slate-100 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200 transition-all"
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-all shadow-md"
+                >
+                  <Printer className="h-3.5 w-3.5" /> Imprimir
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </Layout>
   )

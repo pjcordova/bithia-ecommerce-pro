@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -115,6 +114,7 @@ model productos {
   precio_venta           Decimal                  @db.Decimal(10, 2)
   margen_neto            Decimal?                 @default(dbgenerated("(precio_venta - costo_inversion)")) @db.Decimal(10, 2)
   imagen_url             String?
+  lote            String?
   activo                 Boolean?                 @default(true)
   created_at             DateTime?                @default(now()) @db.Timestamptz(6)
   detalle_ventas         detalle_ventas[]

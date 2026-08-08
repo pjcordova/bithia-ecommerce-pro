@@ -35,26 +35,33 @@ export default function RecepcionMercaderiaPage() {
         setLoading(true);
         setCodigoEscaneado(codigo);
 
-        toast.info('Buscando código en la base de datos...');
-        const res = await buscarProductoPorCodigo(codigo);
+        try {
+            toast.info('Buscando código en la base de datos...');
+            const res = await buscarProductoPorCodigo(codigo);
 
-        if (res.success && res.producto) {
-            toast.success('Producto encontrado. Listo para actualizar stock.');
-            setIsProductoNuevo(false);
-            setNombre(res.producto.nombre);
-            setCategoria(res.producto.categoria);
-            setColorPrincipal(res.producto.color_principal);
-            setCostoInversion(res.producto.costo_inversion.toString());
-            setPrecioVenta(res.producto.precio_venta.toString());
-        } else {
-            toast.warning('Código nuevo detectado. Completa los datos para darlo de alta.');
-            setIsProductoNuevo(true);
-            // Limpiar formulario para nuevo ingreso
-            setNombre('');
-            setCostoInversion('');
-            setPrecioVenta('');
+            if (res.success && res.producto) {
+                toast.success('Producto encontrado. Listo para actualizar stock.');
+                setIsProductoNuevo(false);
+                setNombre(res.producto.nombre);
+                setCategoria(res.producto.categoria);
+                setColorPrincipal(res.producto.color_principal);
+                setCostoInversion(res.producto.costo_inversion.toString());
+                setPrecioVenta(res.producto.precio_venta.toString());
+            } else {
+                toast.warning('Código nuevo detectado. Completa los datos para darlo de alta.');
+                setIsProductoNuevo(true);
+                // Limpiar formulario para nuevo ingreso
+                setNombre('');
+                setCostoInversion('');
+                setPrecioVenta('');
+            }
+        } catch (error) {
+            console.error('Error al escanear:', error);
+            toast.error('Error al procesar el escaneo del código.');
+        } finally {
+            // ⭐ ESTO GARANTIZA QUE EL BOTÓN Y LA PANTALLA SE DESBLOQUEEN SIEMPRE
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const agregarTalla = () => {
