@@ -4,14 +4,21 @@ import Link from 'next/link'
 import Barcode from 'react-barcode'
 import { Layout } from '@/components/Layout'
 import { obtenerProductosInventario, registrarRecepcionMercaderia } from '@/app/actions/recepcion'
-import { Package, Search, Plus, AlertTriangle, Tag, ScanLine, Download, Printer, Barcode as BarcodeIcon, Image as ImageIcon, Eye, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react'
+import { actualizarProducto, cambiarEstadoProducto, ajustarStockManual, obtenerMovimientos } from '@/app/actions/productos'
+import { useAuth } from '@/context/AuthContext'
+import { Package, Search, Plus, AlertTriangle, Tag, ScanLine, Download, Printer, Barcode as BarcodeIcon, Image as ImageIcon, Eye, TrendingUp, ChevronLeft, ChevronRight, Pencil, History, Ban, RotateCcw, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
+const STOCK_BAJO_THRESHOLD = 3
+
 export default function InventarioPage() {
+  const { user } = useAuth()
   const [inventario, setInventario] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('TODAS')
+  const [mostrarInactivos, setMostrarInactivos] = useState(false)
+  const [soloStockBajo, setSoloStockBajo] = useState(false)
 
   // Paginación
   const [paginaActual, setPaginaActual] = useState(1)
@@ -22,6 +29,7 @@ export default function InventarioPage() {
   const [nombre, setNombre] = useState('')
   const [sku, setSku] = useState('')
   const [categoria, setCategoria] = useState('Blusas')
+  const [colorPrincipal, setColorPrincipal] = useState('')
   const [talla, setTalla] = useState('M')
   const [precio, setPrecio] = useState('')
   const [costo, setCosto] = useState('')
@@ -36,6 +44,31 @@ export default function InventarioPage() {
   const [detalleModalOpen, setDetalleModalOpen] = useState(false)
   const [productoSeleccionado, setProductoSeleccionado] = useState<any>(null)
 
+  // Edición de prenda (dentro del modal de detalle)
+  const [modoEdicion, setModoEdicion] = useState(false)
+  const [editNombre, setEditNombre] = useState('')
+  const [editCategoria, setEditCategoria] = useState('Blusas')
+  const [editColor, setEditColor] = useState('')
+  const [editCosto, setEditCosto] = useState('')
+  const [editPrecio, setEditPrecio] = useState('')
+  const [editImagenUrl, setEditImagenUrl] = useState('')
+  const [editUploadingImage, setEditUploadingImage] = useState(false)
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false)
+
+  // Dar de baja / reactivar prenda
+  const [confirmBajaOpen, setConfirmBajaOpen] = useState(false)
+  const [cambiandoEstado, setCambiandoEstado] = useState(false)
+
+  // Kardex de movimientos
+  const [movimientos, setMovimientos] = useState<any[]>([])
+  const [loadingMovimientos, setLoadingMovimientos] = useState(false)
+  const [mostrarFormAjuste, setMostrarFormAjuste] = useState(false)
+  const [ajusteTalla, setAjusteTalla] = useState('')
+  const [ajusteTipo, setAjusteTipo] = useState<'ingreso' | 'salida' | 'ajuste'>('salida')
+  const [ajusteCantidad, setAjusteCantidad] = useState('')
+  const [ajusteMotivo, setAjusteMotivo] = useState('')
+  const [guardandoAjuste, setGuardandoAjuste] = useState(false)
+
   const cargarInventario = async () => {
     setLoading(true)
     const res = await obtenerProductosInventario()
@@ -45,11 +78,44 @@ export default function InventarioPage() {
       toast.error('Error al cargar el inventario desde Railway')
     }
     setLoading(false)
+    return res.productos || []
   }
 
   useEffect(() => {
     cargarInventario()
   }, [])
+
+  const cargarMovimientos = async (productoId: string) => {
+    setLoadingMovimientos(true)
+    const res = await obtenerMovimientos(productoId)
+    setMovimientos(res.movimientos || [])
+    setLoadingMovimientos(false)
+  }
+
+  // KPIs de salud del inventario (siempre sobre el total, sin filtros de búsqueda/categoría aplicados).
+  // Valor y Unidades solo cuentan prendas activas, para que las 4 tarjetas sean consistentes entre sí
+  // y coincidan con lo que se ve en la tabla por defecto (que oculta las inactivas).
+  const kpis = useMemo(() => {
+    let valorTotal = 0
+    let unidadesTotales = 0
+    let prendasStockBajo = 0
+    let prendasInactivas = 0
+
+    inventario.forEach(item => {
+      const stockItem = item.inventario_tallas?.reduce((s: number, t: any) => s + t.cantidad, 0) || 0
+      if (item.activo === false) {
+        prendasInactivas++
+        return
+      }
+      valorTotal += stockItem * Number(item.costo_inversion || 0)
+      unidadesTotales += stockItem
+      if (stockItem <= STOCK_BAJO_THRESHOLD) {
+        prendasStockBajo++
+      }
+    })
+
+    return { valorTotal, unidadesTotales, prendasStockBajo, prendasInactivas }
+  }, [inventario])
 
   // Filtrado de productos
   const productosFiltrados = useMemo(() => {
@@ -58,14 +124,17 @@ export default function InventarioPage() {
       const itemCodigo = item.codigo_barras?.toLowerCase() || ''
       const matchText = itemNombre.includes(busqueda.toLowerCase()) || itemCodigo.includes(busqueda.toLowerCase())
       const matchCat = filtroCategoria === 'TODAS' || item.categoria === filtroCategoria
-      return matchText && matchCat
+      const matchActivo = mostrarInactivos ? true : item.activo !== false
+      const stockItem = item.inventario_tallas?.reduce((s: number, t: any) => s + t.cantidad, 0) || 0
+      const matchStockBajo = soloStockBajo ? stockItem <= STOCK_BAJO_THRESHOLD : true
+      return matchText && matchCat && matchActivo && matchStockBajo
     })
-  }, [inventario, busqueda, filtroCategoria])
+  }, [inventario, busqueda, filtroCategoria, mostrarInactivos, soloStockBajo])
 
   // Resetear a la página 1 cuando cambie la búsqueda o el filtro
   useEffect(() => {
     setPaginaActual(1)
-  }, [busqueda, filtroCategoria])
+  }, [busqueda, filtroCategoria, mostrarInactivos, soloStockBajo])
 
   // Productos paginados para renderizar solo 10 a la vez
   const { productosPaginados, totalPaginas } = useMemo(() => {
@@ -119,14 +188,16 @@ export default function InventarioPage() {
     }
 
     const res = await registrarRecepcionMercaderia({
-      codigo_barras: sku || `SKU-${Math.floor(Math.random() * 90000 + 10000)}`,
+      codigo_barras: sku || undefined,
       nombre,
       categoria,
-      color_principal: 'General',
+      color_principal: colorPrincipal || 'General',
       costo_inversion: parseFloat(costo) || 0,
       precio_venta: parseFloat(precio),
       imagen_url: imagenUrl || undefined,
-      tallas: [{ talla, cantidad: parseInt(cantidad) }]
+      tallas: [{ talla, cantidad: parseInt(cantidad) }],
+      usuarioNombre: user?.name,
+      usuario_id: user?.id,
     })
 
     if (res.success) {
@@ -134,6 +205,7 @@ export default function InventarioPage() {
       setIsModalOpen(false)
       setNombre('')
       setSku('')
+      setColorPrincipal('')
       setPrecio('')
       setCosto('')
       setCantidad('')
@@ -141,6 +213,135 @@ export default function InventarioPage() {
       cargarInventario()
     } else {
       toast.error(res.error || 'Error al guardar la prenda')
+    }
+  }
+
+  // Abre el modal de detalle para una prenda, reseteando sub-vistas (edición/kardex)
+  const handleAbrirDetalle = (item: any) => {
+    setProductoSeleccionado(item)
+    setModoEdicion(false)
+    setMostrarFormAjuste(false)
+    setMovimientos([])
+    setDetalleModalOpen(true)
+    cargarMovimientos(item.id)
+  }
+
+  const handleCerrarDetalle = () => {
+    setDetalleModalOpen(false)
+    setModoEdicion(false)
+    setMostrarFormAjuste(false)
+  }
+
+  const handleAbrirEdicion = () => {
+    setEditNombre(productoSeleccionado.nombre || '')
+    setEditCategoria(productoSeleccionado.categoria || 'Blusas')
+    setEditColor(productoSeleccionado.color_principal || '')
+    setEditCosto(String(productoSeleccionado.costo_inversion || ''))
+    setEditPrecio(String(productoSeleccionado.precio_venta || ''))
+    setEditImagenUrl(productoSeleccionado.imagen_url || '')
+    setModoEdicion(true)
+  }
+
+  const handleEditImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setEditUploadingImage(true)
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('upload_preset', 'bithia_preset')
+
+    try {
+      const res = await fetch(`https://api.cloudinary.com/v1_1/rrh7xuqq/image/upload`, { method: 'POST', body: formData })
+      const data = await res.json()
+      if (data.secure_url) {
+        setEditImagenUrl(data.secure_url)
+        toast.success('Imagen subida a la nube correctamente')
+      } else {
+        toast.error(data.error?.message || 'Error al subir la imagen a Cloudinary')
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error('Error de conexión al subir la imagen')
+    } finally {
+      setEditUploadingImage(false)
+    }
+  }
+
+  const handleGuardarEdicion = async () => {
+    if (!editNombre || !editPrecio) {
+      toast.error('Nombre y precio son obligatorios')
+      return
+    }
+    setGuardandoEdicion(true)
+    const res = await actualizarProducto(productoSeleccionado.id, {
+      nombre: editNombre,
+      categoria: editCategoria,
+      color_principal: editColor || 'General',
+      costo_inversion: parseFloat(editCosto) || 0,
+      precio_venta: parseFloat(editPrecio),
+      imagen_url: editImagenUrl || undefined,
+    })
+    setGuardandoEdicion(false)
+
+    if (res.success) {
+      toast.success(res.message)
+      const productosActualizados = await cargarInventario()
+      const actualizado = productosActualizados.find((p: any) => p.id === productoSeleccionado.id)
+      if (actualizado) setProductoSeleccionado(actualizado)
+      setModoEdicion(false)
+    } else {
+      toast.error(res.error)
+    }
+  }
+
+  const handleConfirmarCambioEstado = async () => {
+    setCambiandoEstado(true)
+    const nuevoEstado = productoSeleccionado.activo === false
+    const res = await cambiarEstadoProducto(productoSeleccionado.id, nuevoEstado)
+    setCambiandoEstado(false)
+    setConfirmBajaOpen(false)
+
+    if (res.success) {
+      toast.success(res.message)
+      handleCerrarDetalle()
+      cargarInventario()
+    } else {
+      toast.error(res.error)
+    }
+  }
+
+  const handleGuardarAjuste = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!ajusteTalla || !ajusteCantidad || !ajusteMotivo.trim()) {
+      toast.error('Completa talla, cantidad y motivo del ajuste')
+      return
+    }
+    setGuardandoAjuste(true)
+    const res = await ajustarStockManual({
+      producto_id: productoSeleccionado.id,
+      talla: ajusteTalla,
+      cantidad: parseInt(ajusteCantidad),
+      tipo: ajusteTipo,
+      motivo: ajusteMotivo.trim(),
+      usuarioNombre: user?.name,
+      usuario_id: user?.id,
+    })
+    setGuardandoAjuste(false)
+
+    if (res.success) {
+      toast.success(res.message)
+      setAjusteTalla('')
+      setAjusteCantidad('')
+      setAjusteMotivo('')
+      setAjusteTipo('salida')
+      setMostrarFormAjuste(false)
+      await cargarMovimientos(productoSeleccionado.id)
+      const productosActualizados = await cargarInventario()
+      const actualizado = productosActualizados.find((p: any) => p.id === productoSeleccionado.id)
+      if (actualizado) setProductoSeleccionado(actualizado)
+    } else {
+      toast.error(res.error)
     }
   }
 
@@ -212,6 +413,36 @@ export default function InventarioPage() {
           </div>
         </div>
 
+        {/* KPIs de Salud del Inventario */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="rounded-2xl bg-card p-5 shadow-sm border border-border">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Valor de Inventario</p>
+            <p className="text-xl font-extrabold text-foreground mt-1">S/ {kpis.valorTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Capital invertido en stock</p>
+          </div>
+          <div className="rounded-2xl bg-card p-5 shadow-sm border border-border">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Unidades Totales</p>
+            <p className="text-xl font-extrabold text-foreground mt-1">{kpis.unidadesTotales}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">En {inventario.length} prendas registradas</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSoloStockBajo(v => !v)}
+            className={`text-left rounded-2xl p-5 shadow-sm border transition-all ${soloStockBajo ? 'bg-amber-500/10 border-amber-500' : 'bg-card border-border hover:border-amber-500/50'}`}
+          >
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3 text-amber-500" /> Stock Bajo
+            </p>
+            <p className="text-xl font-extrabold text-amber-600 mt-1">{kpis.prendasStockBajo}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{soloStockBajo ? 'Filtrando — clic para quitar' : 'Clic para filtrar'}</p>
+          </button>
+          <div className="rounded-2xl bg-card p-5 shadow-sm border border-border">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Inactivas</p>
+            <p className="text-xl font-extrabold text-foreground mt-1">{kpis.prendasInactivas}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Dadas de baja</p>
+          </div>
+        </div>
+
         {/* Filtros y Buscador */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -235,6 +466,15 @@ export default function InventarioPage() {
             <option value="Vestidos">Vestidos</option>
             <option value="Accesorios">Accesorios</option>
           </select>
+          <label className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm cursor-pointer select-none whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={mostrarInactivos}
+              onChange={e => setMostrarInactivos(e.target.checked)}
+              className="rounded accent-primary h-4 w-4"
+            />
+            Mostrar inactivos
+          </label>
         </div>
 
         {/* Tabla de Inventario con Paginación */}
@@ -271,7 +511,7 @@ export default function InventarioPage() {
                     const totalStock = item.inventario_tallas?.reduce((acc: number, t: any) => acc + t.cantidad, 0) || 0
 
                     return (
-                      <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                      <tr key={item.id} className={`hover:bg-muted/30 transition-colors ${item.activo === false ? 'opacity-50' : ''}`}>
                         <td className="py-4 px-6 font-semibold text-foreground flex items-center gap-3">
                           {item.imagen_url ? (
                             <img src={item.imagen_url} alt={item.nombre} className="h-10 w-10 rounded-xl object-cover border border-border shadow-sm" />
@@ -281,7 +521,12 @@ export default function InventarioPage() {
                             </div>
                           )}
                           <div>
-                            <p className="font-bold text-foreground">{item.nombre || 'Sin nombre'}</p>
+                            <p className="font-bold text-foreground flex items-center gap-2">
+                              {item.nombre || 'Sin nombre'}
+                              {item.activo === false && (
+                                <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">Inactivo</span>
+                              )}
+                            </p>
                             <p className="text-xs text-muted-foreground">Inversión: S/ {Number(item.costo_inversion || 0).toFixed(2)}</p>
                           </div>
                         </td>
@@ -309,18 +554,15 @@ export default function InventarioPage() {
                         </td>
                         <td className="py-4 px-4 text-right font-bold text-foreground">S/ {precioSeguro.toFixed(2)}</td>
                         <td className="py-4 px-4 text-right">
-                          <span className={`font-extrabold ${totalStock <= 3 ? 'text-destructive' : 'text-foreground'}`}>
-                            {totalStock} {totalStock <= 3 && '⚠️'}
+                          <span className={`font-extrabold ${totalStock <= STOCK_BAJO_THRESHOLD ? 'text-destructive' : 'text-foreground'}`}>
+                            {totalStock} {totalStock <= STOCK_BAJO_THRESHOLD && '⚠️'}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             <button
-                              onClick={() => {
-                                setProductoSeleccionado(item)
-                                setDetalleModalOpen(true)
-                              }}
-                              title="Ver Detalle y Foto"
+                              onClick={() => handleAbrirDetalle(item)}
+                              title="Ver Detalle, Editar y Kardex"
                               className="p-2 rounded-xl bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground transition-all inline-flex items-center gap-1 text-xs font-bold"
                             >
                               <Eye className="h-4 w-4" />
@@ -429,6 +671,17 @@ export default function InventarioPage() {
                 </div>
 
                 <div>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Color</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Negro, Rosa Pastel, Terracotta..."
+                    value={colorPrincipal}
+                    onChange={e => setColorPrincipal(e.target.value)}
+                    className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                  />
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Fotografía de la Prenda</label>
                   <div className="flex items-center gap-4">
                     {imagenUrl ? (
@@ -529,7 +782,7 @@ export default function InventarioPage() {
           </div>
         )}
 
-        {/* Modal Detalle Ampliado */}
+        {/* Modal Detalle Ampliado / Editar / Kardex */}
         {detalleModalOpen && productoSeleccionado && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
             <div className="w-full max-w-xl rounded-3xl bg-background border border-border p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
@@ -539,88 +792,373 @@ export default function InventarioPage() {
                     <Package className="h-5 w-5" />
                   </span>
                   <div>
-                    <h3 className="text-xl font-extrabold text-foreground">{productoSeleccionado.nombre}</h3>
+                    <h3 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                      {productoSeleccionado.nombre}
+                      {productoSeleccionado.activo === false && (
+                        <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-destructive/10 text-destructive">Inactivo</span>
+                      )}
+                    </h3>
                     <p className="text-xs text-muted-foreground font-mono">SKU: {productoSeleccionado.codigo_barras || 'N/A'}</p>
                     {productoSeleccionado.lote && (
                       <p className="text-xs text-primary font-bold font-mono mt-0.5">Lote de Ingreso: {productoSeleccionado.lote}</p>
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDetalleModalOpen(false)}
-                  className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground font-bold transition-colors"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="flex flex-col items-center justify-center bg-muted/40 rounded-2xl p-4 border border-border/60 min-h-[220px]">
-                  {productoSeleccionado.imagen_url ? (
-                    <img
-                      src={productoSeleccionado.imagen_url}
-                      alt={productoSeleccionado.nombre}
-                      className="max-h-[240px] w-full object-cover rounded-xl shadow-md border border-border"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-muted-foreground">
-                      <ImageIcon className="h-12 w-12 mb-2 opacity-50" />
-                      <p className="text-xs font-medium">Sin fotografía registrada</p>
-                    </div>
+                <div className="flex items-center gap-1.5">
+                  {!modoEdicion && (
+                    <button
+                      type="button"
+                      onClick={handleAbrirEdicion}
+                      title="Editar prenda"
+                      className="h-8 w-8 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground flex items-center justify-center text-foreground transition-colors"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                   )}
-                </div>
-
-                <div className="space-y-4 flex flex-col justify-between">
-                  <div className="space-y-3">
-                    <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Categoría</span>
-                      <p className="text-sm font-bold text-foreground mt-0.5 flex items-center gap-1.5">
-                        <Tag className="h-3.5 w-3.5 text-primary" /> {productoSeleccionado.categoria}
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Costo Inversión</span>
-                        <p className="text-sm font-bold text-foreground mt-0.5">S/ {Number(productoSeleccionado.costo_inversion || 0).toFixed(2)}</p>
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Precio Venta</span>
-                        <p className="text-base font-black text-primary mt-0.5">S/ {Number(productoSeleccionado.precio_venta || 0).toFixed(2)}</p>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-border">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Margen de Ganancia Neto</span>
-                      <p className="text-sm font-extrabold text-emerald-600 mt-0.5 flex items-center gap-1">
-                        <TrendingUp className="h-4 w-4" />
-                        S/ {(Number(productoSeleccionado.precio_venta || 0) - Number(productoSeleccionado.costo_inversion || 0)).toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Desglose de Stock por Tallas</span>
-                    <div className="flex flex-wrap gap-2">
-                      {productoSeleccionado.inventario_tallas?.map((t: any) => (
-                        <div key={t.id} className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold text-foreground flex items-center gap-1.5 shadow-sm">
-                          <span>{t.talla}:</span>
-                          <span className="text-primary font-extrabold">{t.cantidad} un.</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBajaOpen(true)}
+                    title={productoSeleccionado.activo === false ? 'Reactivar prenda' : 'Dar de baja'}
+                    className="h-8 w-8 rounded-full bg-secondary hover:bg-destructive hover:text-white flex items-center justify-center text-foreground transition-colors"
+                  >
+                    {productoSeleccionado.activo === false ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCerrarDetalle}
+                    className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground font-bold transition-colors"
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-6 border-t border-border mt-6">
+              {modoEdicion ? (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Fotografía</label>
+                      <div className="flex items-center gap-4">
+                        {editImagenUrl ? (
+                          <div className="relative h-20 w-20 rounded-2xl overflow-hidden border border-border shadow-sm group flex-shrink-0">
+                            <img src={editImagenUrl} alt="Preview" className="h-full w-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => setEditImagenUrl('')}
+                              className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-2xl p-4 cursor-pointer hover:border-primary transition-all bg-card/50">
+                            <ImageIcon className="h-5 w-5 text-muted-foreground mb-1" />
+                            <span className="text-xs font-bold text-foreground">
+                              {editUploadingImage ? 'Subiendo...' : 'Subir foto'}
+                            </span>
+                            <input type="file" accept="image/*" onChange={handleEditImageUpload} className="hidden" disabled={editUploadingImage} />
+                          </label>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Nombre *</label>
+                        <input
+                          type="text"
+                          required
+                          value={editNombre}
+                          onChange={e => setEditNombre(e.target.value)}
+                          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Categoría</label>
+                          <select
+                            value={editCategoria}
+                            onChange={e => setEditCategoria(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          >
+                            <option value="Blusas">Blusas</option>
+                            <option value="Pantalones">Pantalones</option>
+                            <option value="Vestidos">Vestidos</option>
+                            <option value="Accesorios">Accesorios</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Color</label>
+                          <input
+                            type="text"
+                            value={editColor}
+                            onChange={e => setEditColor(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Costo (S/.)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={editCosto}
+                            onChange={e => setEditCosto(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Precio (S/.) *</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            required
+                            value={editPrecio}
+                            onChange={e => setEditPrecio(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={() => setModoEdicion(false)}
+                      className="rounded-2xl px-5 py-2.5 text-sm font-bold text-muted-foreground hover:bg-muted transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGuardarEdicion}
+                      disabled={guardandoEdicion || editUploadingImage}
+                      className="rounded-2xl bg-primary px-6 py-2.5 text-sm font-extrabold text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95 transition-all disabled:opacity-50"
+                    >
+                      {guardandoEdicion ? 'Guardando...' : 'Guardar Cambios'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="flex flex-col items-center justify-center bg-muted/40 rounded-2xl p-4 border border-border/60 min-h-[220px]">
+                      {productoSeleccionado.imagen_url ? (
+                        <img
+                          src={productoSeleccionado.imagen_url}
+                          alt={productoSeleccionado.nombre}
+                          className="max-h-[240px] w-full object-cover rounded-xl shadow-md border border-border"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-muted-foreground">
+                          <ImageIcon className="h-12 w-12 mb-2 opacity-50" />
+                          <p className="text-xs font-medium">Sin fotografía registrada</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-4 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Categoría</span>
+                          <p className="text-sm font-bold text-foreground mt-0.5 flex items-center gap-1.5">
+                            <Tag className="h-3.5 w-3.5 text-primary" /> {productoSeleccionado.categoria}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Costo Inversión</span>
+                            <p className="text-sm font-bold text-foreground mt-0.5">S/ {Number(productoSeleccionado.costo_inversion || 0).toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Precio Venta</span>
+                            <p className="text-base font-black text-primary mt-0.5">S/ {Number(productoSeleccionado.precio_venta || 0).toFixed(2)}</p>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-border">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Margen de Ganancia Neto</span>
+                          <p className="text-sm font-extrabold text-emerald-600 mt-0.5 flex items-center gap-1">
+                            <TrendingUp className="h-4 w-4" />
+                            S/ {(Number(productoSeleccionado.precio_venta || 0) - Number(productoSeleccionado.costo_inversion || 0)).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Desglose de Stock por Tallas</span>
+                        <div className="flex flex-wrap gap-2">
+                          {productoSeleccionado.inventario_tallas?.map((t: any) => (
+                            <div key={t.id} className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold text-foreground flex items-center gap-1.5 shadow-sm">
+                              <span>{t.talla}:</span>
+                              <span className="text-primary font-extrabold">{t.cantidad} un.</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Kardex de Movimientos */}
+                  <div className="mt-6 pt-6 border-t border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-extrabold text-foreground flex items-center gap-2">
+                        <History className="h-4 w-4 text-primary" /> Kardex de Movimientos
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => setMostrarFormAjuste(v => !v)}
+                        className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Ajustar Stock
+                      </button>
+                    </div>
+
+                    {mostrarFormAjuste && (
+                      <form onSubmit={handleGuardarAjuste} className="mb-4 p-4 rounded-2xl bg-muted/30 border border-border grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+                        <div>
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Talla</label>
+                          <select
+                            value={ajusteTalla}
+                            onChange={e => setAjusteTalla(e.target.value)}
+                            required
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground"
+                          >
+                            <option value="">--</option>
+                            {productoSeleccionado.inventario_tallas?.map((t: any) => (
+                              <option key={t.id} value={t.talla}>{t.talla} (stock: {t.cantidad})</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Tipo</label>
+                          <select
+                            value={ajusteTipo}
+                            onChange={e => setAjusteTipo(e.target.value as 'ingreso' | 'salida' | 'ajuste')}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground"
+                          >
+                            <option value="salida">Salida (merma/pérdida)</option>
+                            <option value="ajuste">Ajuste (corrección)</option>
+                            <option value="ingreso">Ingreso manual</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Cantidad</label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            value={ajusteCantidad}
+                            onChange={e => setAjusteCantidad(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            onClick={() => setMostrarFormAjuste(false)}
+                            className="w-full rounded-xl px-3 py-2 text-xs font-bold text-muted-foreground hover:bg-muted transition-all"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                        <div className="col-span-2 sm:col-span-4">
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Motivo *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Prenda manchada, conteo físico, devolución a proveedor..."
+                            value={ajusteMotivo}
+                            onChange={e => setAjusteMotivo(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground"
+                          />
+                        </div>
+                        <div className="col-span-2 sm:col-span-4 flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={guardandoAjuste}
+                            className="rounded-xl bg-primary px-5 py-2.5 text-xs font-extrabold text-primary-foreground shadow-sm hover:opacity-95 transition-all disabled:opacity-50"
+                          >
+                            {guardandoAjuste ? 'Guardando...' : 'Registrar Movimiento'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1">
+                      {loadingMovimientos ? (
+                        <p className="text-xs text-muted-foreground text-center py-4">Cargando historial...</p>
+                      ) : movimientos.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-4">Sin movimientos registrados todavía.</p>
+                      ) : (
+                        movimientos.map((m: any) => (
+                          <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-muted/30 border border-border/60">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className={`h-7 w-7 flex-shrink-0 rounded-full flex items-center justify-center ${m.tipo === 'salida' ? 'bg-destructive/10 text-destructive' : m.tipo === 'ajuste' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                {m.tipo === 'salida' ? <ArrowDownCircle className="h-4 w-4" /> : <ArrowUpCircle className="h-4 w-4" />}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-foreground truncate">{m.motivo || (m.tipo === 'ingreso' ? 'Ingreso de stock' : m.tipo === 'salida' ? 'Salida de stock' : 'Ajuste de stock')}</p>
+                                <p className="text-[10px] text-muted-foreground">Talla {m.talla} · {new Date(m.fecha_hora).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                              </div>
+                            </div>
+                            <span className={`text-sm font-extrabold flex-shrink-0 ${m.tipo === 'salida' ? 'text-destructive' : 'text-emerald-600'}`}>
+                              {m.tipo === 'salida' ? '-' : '+'}{m.cantidad}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-6 border-t border-border mt-6">
+                    <button
+                      type="button"
+                      onClick={handleCerrarDetalle}
+                      className="rounded-2xl bg-secondary px-6 py-2.5 text-xs font-bold text-foreground hover:opacity-90 transition-all"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirmación Dar de Baja / Reactivar */}
+        {confirmBajaOpen && productoSeleccionado && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
+            <div className="w-full max-w-sm rounded-3xl bg-background border border-border p-6 shadow-2xl text-center">
+              <div className={`h-12 w-12 rounded-full mx-auto mb-4 flex items-center justify-center ${productoSeleccionado.activo === false ? 'bg-emerald-100 text-emerald-600' : 'bg-destructive/10 text-destructive'}`}>
+                {productoSeleccionado.activo === false ? <RotateCcw className="h-6 w-6" /> : <Ban className="h-6 w-6" />}
+              </div>
+              <h4 className="text-base font-extrabold text-foreground mb-1">
+                {productoSeleccionado.activo === false ? '¿Reactivar esta prenda?' : '¿Dar de baja esta prenda?'}
+              </h4>
+              <p className="text-xs text-muted-foreground mb-6">
+                {productoSeleccionado.activo === false
+                  ? `"${productoSeleccionado.nombre}" volverá a aparecer en el listado activo del inventario.`
+                  : `"${productoSeleccionado.nombre}" dejará de aparecer en el inventario activo. Su historial de ventas y movimientos se conserva.`}
+              </p>
+              <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setDetalleModalOpen(false)}
-                  className="rounded-2xl bg-secondary px-6 py-2.5 text-xs font-bold text-foreground hover:opacity-90 transition-all"
+                  onClick={() => setConfirmBajaOpen(false)}
+                  className="flex-1 rounded-xl bg-secondary py-2.5 text-xs font-bold text-foreground hover:opacity-90 transition-all"
                 >
-                  Cerrar
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarCambioEstado}
+                  disabled={cambiandoEstado}
+                  className={`flex-1 rounded-xl py-2.5 text-xs font-extrabold text-white shadow-md transition-all disabled:opacity-50 ${productoSeleccionado.activo === false ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-destructive hover:opacity-90'}`}
+                >
+                  {cambiandoEstado ? 'Procesando...' : productoSeleccionado.activo === false ? 'Reactivar' : 'Dar de Baja'}
                 </button>
               </div>
             </div>

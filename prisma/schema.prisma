@@ -97,6 +97,7 @@ model perfiles {
   nombre                 String
   email                  String                   @unique
   rol                    String                   @default("staff")
+  password_hash          String?
   created_at             DateTime?                @default(now()) @db.Timestamptz(6)
   cuadres_caja           cuadres_caja[]
   gastos_operativos      gastos_operativos[]

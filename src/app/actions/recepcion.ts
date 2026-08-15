@@ -48,6 +48,24 @@ export async function buscarProductoPorCodigo(codigo_barras: string) {
     }
 }
 
+// Genera un código de barras interno único (prefijo de categoría + año/mes + correlativo)
+// para cuando el escaneo falla o la prenda no trae un código de fábrica.
+async function generarCodigoBarrasUnico(catPrefijo: string): Promise<string> {
+    const now = new Date()
+    const anio = now.getFullYear().toString().slice(-2)
+    const mes = (now.getMonth() + 1).toString().padStart(2, '0')
+
+    for (let intento = 0; intento < 5; intento++) {
+        const totalProductos = await prisma.productos.count()
+        const correlativo = (totalProductos + 1 + intento).toString().padStart(4, '0')
+        const codigo = `${catPrefijo}${anio}${mes}${correlativo}`
+        const existente = await prisma.productos.findUnique({ where: { codigo_barras: codigo } })
+        if (!existente) return codigo
+    }
+    // Fallback extremo si hubo colisiones repetidas (alta concurrencia)
+    return `${catPrefijo}${anio}${mes}${Date.now().toString().slice(-6)}`
+}
+
 export async function registrarRecepcionMercaderia(data: {
     codigo_barras?: string
     nombre: string
@@ -57,9 +75,11 @@ export async function registrarRecepcionMercaderia(data: {
     precio_venta: number
     imagen_url?: string
     tallas: { talla: string; cantidad: number }[]
+    usuarioNombre?: string
+    usuario_id?: string
 }) {
     try {
-        const { codigo_barras, nombre, categoria, color_principal, costo_inversion, precio_venta, imagen_url, tallas } = data
+        const { codigo_barras, nombre, categoria, color_principal, costo_inversion, precio_venta, imagen_url, tallas, usuarioNombre, usuario_id } = data
 
         const now = new Date()
         const anio = now.getFullYear().toString().slice(-2)
@@ -82,9 +102,11 @@ export async function registrarRecepcionMercaderia(data: {
             : null
 
         if (!producto) {
+            const codigoFinal = codigo_barras || await generarCodigoBarrasUnico(catPrefijo)
+
             producto = await prisma.productos.create({
                 data: {
-                    codigo_barras: codigo_barras || null,
+                    codigo_barras: codigoFinal,
                     nombre,
                     categoria,
                     color_principal,
@@ -101,42 +123,79 @@ export async function registrarRecepcionMercaderia(data: {
                 },
                 include: { inventario_tallas: true }
             })
-        } else {
-            await prisma.productos.update({
-                where: { id: producto.id },
-                data: {
-                    costo_inversion,
-                    precio_venta,
-                    imagen_url: imagen_url || producto.imagen_url
-                }
+
+            await prisma.movimientos_inventario.createMany({
+                data: tallas.map(t => ({
+                    producto_id: producto!.id,
+                    talla: t.talla.toUpperCase(),
+                    tipo: 'ingreso',
+                    cantidad: t.cantidad,
+                    motivo: `Recepción — Lote ${numeroLote}${usuarioNombre ? ` (${usuarioNombre})` : ''}`,
+                    usuario_id: usuario_id || null,
+                }))
             })
 
-            for (const t of tallas) {
-                const tallaUpper = t.talla.toUpperCase()
-                const tallaExistente = producto.inventario_tallas.find(
-                    (item: any) => item.talla.toUpperCase() === tallaUpper
-                )
-
-                if (tallaExistente) {
-                    await prisma.inventario_tallas.update({
-                        where: { id: tallaExistente.id },
-                        data: { cantidad: tallaExistente.cantidad + t.cantidad }
-                    })
-                } else {
-                    await prisma.inventario_tallas.create({
-                        data: {
-                            producto_id: producto.id,
-                            talla: tallaUpper,
-                            cantidad: t.cantidad
-                        }
-                    })
-                }
+            revalidatePath('/inventario')
+            revalidatePath('/inventario/recepcion')
+            return {
+                success: true,
+                message: `¡Prenda nueva registrada! Lote ${numeroLote} · Código ${producto.codigo_barras}`,
+                codigo_barras: producto.codigo_barras,
+                lote: numeroLote,
             }
         }
 
+        await prisma.productos.update({
+            where: { id: producto.id },
+            data: {
+                costo_inversion,
+                precio_venta,
+                imagen_url: imagen_url || producto.imagen_url
+            }
+        })
+
+        for (const t of tallas) {
+            const tallaUpper = t.talla.toUpperCase()
+            const tallaExistente = producto.inventario_tallas.find(
+                (item: any) => item.talla.toUpperCase() === tallaUpper
+            )
+
+            if (tallaExistente) {
+                await prisma.inventario_tallas.update({
+                    where: { id: tallaExistente.id },
+                    data: { cantidad: tallaExistente.cantidad + t.cantidad }
+                })
+            } else {
+                await prisma.inventario_tallas.create({
+                    data: {
+                        producto_id: producto.id,
+                        talla: tallaUpper,
+                        cantidad: t.cantidad
+                    }
+                })
+            }
+        }
+
+        await prisma.movimientos_inventario.createMany({
+            data: tallas.map(t => ({
+                producto_id: producto!.id,
+                talla: t.talla.toUpperCase(),
+                tipo: 'ingreso',
+                cantidad: t.cantidad,
+                motivo: `Recepción — Lote ${numeroLote}${usuarioNombre ? ` (${usuarioNombre})` : ''}`,
+                usuario_id: usuario_id || null,
+            }))
+        })
+
         revalidatePath('/inventario')
         revalidatePath('/inventario/recepcion')
-        return { success: true, message: `¡Mercadería registrada con éxito bajo el Lote ${numeroLote}!` }
+        const unidadesIngresadas = tallas.reduce((s, t) => s + t.cantidad, 0)
+        return {
+            success: true,
+            message: `¡Stock actualizado! +${unidadesIngresadas} unidades bajo Lote ${numeroLote}`,
+            codigo_barras: producto.codigo_barras,
+            lote: numeroLote,
+        }
     } catch (error) {
         console.error("Error al registrar recepción:", error)
         return { success: false, error: "Hubo un error al registrar la recepción de mercadería." }

@@ -105,21 +105,6 @@ const Login: React.FC = () => {
               )}
             </button>
           </div>
-
-          {/* Demo credentials */}
-          <div className="mt-6 rounded-xl bg-muted p-4">
-            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-bithia-silver">Credenciales Demo</p>
-            <div className="space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-bithia-silver">CEO (Admin):</span>
-                <span className="font-mono font-bold text-foreground">ceo@bithia.com / admin123</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-bithia-silver">Staff:</span>
-                <span className="font-mono font-bold text-foreground">staff@bithia.com / staff123</span>
-              </div>
-            </div>
-          </div>
         </form>
       </div>
     </div>

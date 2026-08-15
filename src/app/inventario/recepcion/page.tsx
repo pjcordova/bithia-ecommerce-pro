@@ -3,10 +3,12 @@ import React, { useState } from 'react';
 import { Layout } from '@/components/Layout';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { buscarProductoPorCodigo, registrarRecepcionMercaderia } from '@/app/actions/recepcion';
-import { Package, ScanLine, AlertCircle, PlusCircle, Save } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { Package, ScanLine, AlertCircle, PlusCircle, Save, Image as ImageIcon, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function RecepcionMercaderiaPage() {
+    const { user } = useAuth();
     const [codigoEscaneado, setCodigoEscaneado] = useState<string | null>(null);
     const [isProductoNuevo, setIsProductoNuevo] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -14,9 +16,11 @@ export default function RecepcionMercaderiaPage() {
     // Estados del Formulario
     const [nombre, setNombre] = useState('');
     const [categoria, setCategoria] = useState('Blusas');
-    const [colorPrincipal, setColorPrincipal] = useState('Beige');
+    const [colorPrincipal, setColorPrincipal] = useState('');
     const [costoInversion, setCostoInversion] = useState('');
     const [precioVenta, setPrecioVenta] = useState('');
+    const [imagenUrl, setImagenUrl] = useState('');
+    const [uploadingImage, setUploadingImage] = useState(false);
 
     // Matriz de Tallas (El "Bulto" de Lima)
     const [tallas, setTallas] = useState([
@@ -47,13 +51,16 @@ export default function RecepcionMercaderiaPage() {
                 setColorPrincipal(res.producto.color_principal);
                 setCostoInversion(res.producto.costo_inversion.toString());
                 setPrecioVenta(res.producto.precio_venta.toString());
+                setImagenUrl(res.producto.imagen_url || '');
             } else {
                 toast.warning('Código nuevo detectado. Completa los datos para darlo de alta.');
                 setIsProductoNuevo(true);
                 // Limpiar formulario para nuevo ingreso
                 setNombre('');
+                setColorPrincipal('');
                 setCostoInversion('');
                 setPrecioVenta('');
+                setImagenUrl('');
             }
         } catch (error) {
             console.error('Error al escanear:', error);
@@ -68,6 +75,47 @@ export default function RecepcionMercaderiaPage() {
         setTallas([...tallas, { talla: '', cantidad: 1 }]);
     };
 
+    // Cuando la cámara no logra leer el código, el sistema genera uno propio al guardar
+    const handleSinCodigo = () => {
+        setCodigoEscaneado('');
+        setIsProductoNuevo(true);
+        setNombre('');
+        setColorPrincipal('');
+        setCostoInversion('');
+        setPrecioVenta('');
+        setImagenUrl('');
+        toast.info('Sin problema: el sistema asignará el código y lote automáticamente al guardar.');
+    };
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingImage(true);
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', 'bithia_preset');
+
+        try {
+            const res = await fetch(
+                `https://api.cloudinary.com/v1_1/rrh7xuqq/image/upload`,
+                { method: 'POST', body: formData }
+            );
+            const data = await res.json();
+            if (data.secure_url) {
+                setImagenUrl(data.secure_url);
+                toast.success('Foto subida correctamente');
+            } else {
+                toast.error(data.error?.message || 'Error al subir la imagen a Cloudinary');
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error de conexión al subir la imagen');
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!nombre || !costoInversion || !precioVenta) {
@@ -80,10 +128,13 @@ export default function RecepcionMercaderiaPage() {
             codigo_barras: codigoEscaneado || undefined,
             nombre,
             categoria,
-            color_principal: colorPrincipal,
+            color_principal: colorPrincipal || 'General',
             costo_inversion: parseFloat(costoInversion),
             precio_venta: parseFloat(precioVenta),
-            tallas: tallas.filter(t => t.talla.trim() !== '') // Evitar tallas vacías
+            imagen_url: imagenUrl || undefined,
+            tallas: tallas.filter(t => t.talla.trim() !== ''), // Evitar tallas vacías
+            usuarioNombre: user?.name,
+            usuario_id: user?.id,
         });
 
         if (res.success) {
@@ -91,6 +142,7 @@ export default function RecepcionMercaderiaPage() {
             // Resetear vista para escanear la siguiente prenda
             setCodigoEscaneado(null);
             setIsProductoNuevo(false);
+            setImagenUrl('');
         } else {
             toast.error(res.error);
         }
@@ -110,15 +162,21 @@ export default function RecepcionMercaderiaPage() {
                     </div>
                 </div>
 
-                {!codigoEscaneado ? (
+                {codigoEscaneado === null ? (
                     <div className="mt-8">
                         <BarcodeScanner onScanSuccess={handleScan} />
-                        <div className="mt-6 flex justify-center">
+                        <div className="mt-6 flex flex-col items-center gap-2">
                             <button
                                 onClick={() => handleScan(prompt("Ingresa el código EAN manualmente:") || "")}
                                 className="text-sm font-medium text-primary hover:underline"
                             >
                                 ¿No lee la cámara? Ingresar código manualmente
+                            </button>
+                            <button
+                                onClick={handleSinCodigo}
+                                className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+                            >
+                                <Wand2 className="h-3.5 w-3.5" /> No tengo el código a mano, generarlo automáticamente
                             </button>
                         </div>
                     </div>
@@ -127,7 +185,7 @@ export default function RecepcionMercaderiaPage() {
                         <div className="flex justify-between items-center mb-6 pb-4 border-b border-border">
                             <div className="flex items-center gap-2">
                                 <span className="px-3 py-1 bg-primary text-primary-foreground font-mono text-sm rounded-lg shadow-sm">
-                                    {codigoEscaneado}
+                                    {codigoEscaneado || 'Se generará automáticamente'}
                                 </span>
                                 {isProductoNuevo ? (
                                     <span className="flex items-center gap-1 text-xs font-bold text-amber-600 bg-amber-100 px-2 py-1 rounded-md">
@@ -141,7 +199,7 @@ export default function RecepcionMercaderiaPage() {
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setCodigoEscaneado(null)}
+                                onClick={() => { setCodigoEscaneado(null); setImagenUrl(''); }}
                                 className="text-sm font-medium text-muted-foreground hover:text-destructive transition-colors"
                             >
                                 Cancelar y escanear otro
@@ -174,6 +232,45 @@ export default function RecepcionMercaderiaPage() {
                                         <option value="Vestidos">Vestidos</option>
                                         <option value="Accesorios">Accesorios</option>
                                     </select>
+                                </div>
+                            </div>
+
+                            {/* Bloque Color */}
+                            <div>
+                                <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Color</label>
+                                <input
+                                    type="text"
+                                    value={colorPrincipal}
+                                    onChange={(e) => setColorPrincipal(e.target.value)}
+                                    placeholder="Ej. Negro, Rosa Pastel, Terracotta..."
+                                    className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:ring-2 focus:ring-primary"
+                                />
+                            </div>
+
+                            {/* Bloque Fotografía */}
+                            <div>
+                                <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Fotografía de la Prenda</label>
+                                <div className="flex items-center gap-4">
+                                    {imagenUrl ? (
+                                        <div className="relative h-20 w-20 rounded-2xl overflow-hidden border border-border shadow-sm group flex-shrink-0">
+                                            <img src={imagenUrl} alt="Preview" className="h-full w-full object-cover" />
+                                            <button
+                                                type="button"
+                                                onClick={() => setImagenUrl('')}
+                                                className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold"
+                                            >
+                                                Quitar
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <label className="flex-1 flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-2xl p-4 cursor-pointer hover:border-primary transition-all bg-background">
+                                            <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                                            <span className="text-xs font-bold text-foreground">
+                                                {uploadingImage ? 'Subiendo foto...' : 'Tomar foto o subir imagen'}
+                                            </span>
+                                            <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" disabled={uploadingImage} />
+                                        </label>
+                                    )}
                                 </div>
                             </div>
 
@@ -270,7 +367,7 @@ export default function RecepcionMercaderiaPage() {
                             <div className="pt-4 border-t border-border">
                                 <button
                                     type="submit"
-                                    disabled={loading}
+                                    disabled={loading || uploadingImage}
                                     className="w-full flex justify-center items-center gap-2 rounded-xl bg-primary px-6 py-4 text-base font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95 transition-all disabled:opacity-50"
                                 >
                                     <Save className="h-5 w-5" />

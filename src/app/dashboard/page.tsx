@@ -1,15 +1,44 @@
 "use client";
-import React, { useMemo } from 'react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { TrendingUp, ShoppingBag, Users, AlertTriangle, ArrowUpRight, ArrowDownRight, CheckCircle2 } from 'lucide-react'
-import { useApp } from '@/context/AppContext'
+import React, { useMemo, useState, useEffect } from 'react'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
+import { TrendingUp, ShoppingBag, Users, AlertTriangle, ArrowUpRight, ArrowDownRight, CheckCircle2, Package, Receipt, Store } from 'lucide-react'
+import { obtenerDatosDashboard } from '@/app/actions/dashboard'
 import { useAuth } from '@/context/AuthContext'
 import { Layout } from '@/components/Layout'
 import { AdminRoute } from '@/components/AdminRoute'
+import { toast } from 'sonner'
+
+const CANAL_COLORS = ['#c9a48d', '#d4a59a']
+const METODO_COLORS = ['#c9a48d', '#d4a59a', '#a78bfa', '#f59e0b', '#60a5fa']
 
 export default function DashboardPage() {
-  const { ventas, clientes, inventario, cuadres } = useApp()
   const { user } = useAuth()
+  const [ventas, setVentas] = useState<any[]>([])
+  const [clientes, setClientes] = useState<any[]>([])
+  const [inventario, setInventario] = useState<any[]>([])
+  const [productos, setProductos] = useState<any[]>([])
+  const [detalleVentas, setDetalleVentas] = useState<any[]>([])
+  const [gastos, setGastos] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const cargar = async () => {
+      setLoading(true)
+      const res = await obtenerDatosDashboard()
+      if (res.success) {
+        setVentas(res.ventas)
+        setClientes(res.clientes)
+        setInventario(res.inventario)
+        setProductos(res.productos)
+        setDetalleVentas(res.detalleVentas)
+        setGastos(res.gastos)
+      } else {
+        toast.error('Error al cargar el dashboard desde Railway')
+      }
+      setLoading(false)
+    }
+    cargar()
+  }, [])
 
   // Lógica de datos
   const now = new Date()
@@ -34,7 +63,42 @@ export default function DashboardPage() {
   }, [ventas])
 
   const recentSales = [...ventas].sort((a, b) => new Date(b.fecha_hora).getTime() - new Date(a.fecha_hora).getTime()).slice(0, 5)
-  const recentCuadres = [...cuadres].sort((a, b) => new Date(b.fecha_hora).getTime() - new Date(a.fecha_hora).getTime()).slice(0, 5)
+
+  const topProductos = useMemo(() => {
+    const map = new Map<string, { nombre: string; categoria: string; unidades: number; utilidad: number }>()
+    detalleVentas.forEach(d => {
+      const prod = productos.find(p => p.id === d.producto_id)
+      if (!prod) return
+      const entry = map.get(prod.id) || { nombre: prod.nombre, categoria: prod.categoria, unidades: 0, utilidad: 0 }
+      entry.unidades += d.cantidad
+      entry.utilidad += d.utilidad_subtotal
+      map.set(prod.id, entry)
+    })
+    return Array.from(map.values()).sort((a, b) => b.unidades - a.unidades).slice(0, 5)
+  }, [detalleVentas, productos])
+  const maxUnidades = Math.max(1, ...topProductos.map(p => p.unidades))
+
+  const ventasPorCanal = useMemo(() => {
+    const stand = ventas.filter(v => v.canal_venta === 'stand').reduce((s, v) => s + v.total, 0)
+    const instagram = ventas.filter(v => v.canal_venta === 'instagram').reduce((s, v) => s + v.total, 0)
+    return [
+      { name: 'Stand', value: stand },
+      { name: 'Instagram', value: instagram },
+    ].filter(c => c.value > 0)
+  }, [ventas])
+
+  const metodosPago = useMemo(() => {
+    const map = new Map<string, number>()
+    ventas.forEach(v => map.set(v.metodo_pago, (map.get(v.metodo_pago) || 0) + v.total))
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value }))
+  }, [ventas])
+
+  const gastosPorCategoria = useMemo(() => {
+    const map = new Map<string, number>()
+    gastos.forEach(g => map.set(g.categoria, (map.get(g.categoria) || 0) + g.monto))
+    return Array.from(map.entries()).map(([categoria, monto]) => ({ categoria, monto })).sort((a, b) => b.monto - a.monto)
+  }, [gastos])
+  const totalGastos = gastosPorCategoria.reduce((s, g) => s + g.monto, 0)
 
   const stats = [
     { title: 'Ventas Hoy', value: `S/ ${totalHoy.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: ShoppingBag, color: 'text-primary', trend: `${ventasHoy.length} ventas`, up: true },
@@ -53,6 +117,12 @@ export default function DashboardPage() {
             <p className="mt-2 text-white/80 font-medium">Bithia Brand · {new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
           </div>
 
+          {loading ? (
+            <div className="rounded-2xl bg-card p-12 text-center text-muted-foreground border border-border">
+              Sincronizando dashboard con la nube...
+            </div>
+          ) : (
+          <>
           {/* Stats Grid */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {stats.map(s => (
@@ -112,6 +182,111 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Top Productos */}
+            <div className="lg:col-span-2 rounded-2xl bg-card p-6 shadow-sm border border-border">
+              <h3 className="mb-6 font-bold text-foreground flex items-center gap-2">
+                <Package className="h-4 w-4 text-primary" /> Top Productos
+              </h3>
+              {topProductos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Aún no hay ventas registradas.</p>
+              ) : (
+                <div className="space-y-5">
+                  {topProductos.map((p, i) => (
+                    <div key={p.nombre}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-muted-foreground w-4">{i + 1}.</span>
+                          <span className="text-sm font-bold text-foreground">{p.nombre}</span>
+                          <span className="text-[10px] font-semibold text-muted-foreground uppercase bg-secondary/50 px-2 py-0.5 rounded-full">{p.categoria}</span>
+                        </div>
+                        <span className="text-xs font-bold text-foreground">{p.unidades} uds · S/ {p.utilidad.toFixed(0)}</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-secondary/50 overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent" style={{ width: `${(p.unidades / maxUnidades) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ventas por Canal */}
+            <div className="rounded-2xl bg-card p-6 shadow-sm border border-border">
+              <h3 className="mb-2 font-bold text-foreground flex items-center gap-2">
+                <Store className="h-4 w-4 text-primary" /> Ventas por Canal
+              </h3>
+              {ventasPorCanal.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin datos aún.</p>
+              ) : (
+                <div className="h-[220px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={ventasPorCanal} dataKey="value" nameKey="name" innerRadius={55} outerRadius={80} paddingAngle={3}>
+                        {ventasPorCanal.map((_, i) => <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: any) => `S/ ${Number(v).toFixed(2)}`} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                      <Legend verticalAlign="bottom" height={24} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Métodos de Pago */}
+            <div className="rounded-2xl bg-card p-6 shadow-sm border border-border">
+              <h3 className="mb-2 font-bold text-foreground flex items-center gap-2">
+                <ArrowUpRight className="h-4 w-4 text-primary" /> Métodos de Pago
+              </h3>
+              {metodosPago.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin datos aún.</p>
+              ) : (
+                <div className="h-[220px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={metodosPago} dataKey="value" nameKey="name" innerRadius={55} outerRadius={80} paddingAngle={3}>
+                        {metodosPago.map((_, i) => <Cell key={i} fill={METODO_COLORS[i % METODO_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: any) => `S/ ${Number(v).toFixed(2)}`} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                      <Legend verticalAlign="bottom" height={24} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', fontWeight: 600, textTransform: 'capitalize' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            {/* Gastos por Categoría */}
+            <div className="lg:col-span-2 rounded-2xl bg-card p-6 shadow-sm border border-border">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-bold text-foreground flex items-center gap-2">
+                  <Receipt className="h-4 w-4 text-primary" /> Gastos por Categoría
+                </h3>
+                <span className="text-sm font-extrabold text-foreground">S/ {totalGastos.toFixed(2)}</span>
+              </div>
+              {gastosPorCategoria.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Aún no hay gastos registrados.</p>
+              ) : (
+                <div className="space-y-5">
+                  {gastosPorCategoria.map(g => (
+                    <div key={g.categoria}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm font-bold text-foreground">{g.categoria}</span>
+                        <span className="text-xs font-bold text-muted-foreground">S/ {g.monto.toFixed(2)}</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-secondary/50 overflow-hidden">
+                        <div className="h-full rounded-full bg-amber-500" style={{ width: `${(g.monto / totalGastos) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          </>
+          )}
         </div>
       </Layout>
     </AdminRoute>
