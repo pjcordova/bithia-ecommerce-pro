@@ -43,13 +43,12 @@ export default function InventarioPage() {
   const [nombre, setNombre] = useState('')
   const [sku, setSku] = useState('')
   const [categoria, setCategoria] = useState('Blusas')
-  const [colorPrincipal, setColorPrincipal] = useState('')
-  const [talla, setTalla] = useState('M')
   const [precio, setPrecio] = useState('')
   const [costo, setCosto] = useState('')
-  const [cantidad, setCantidad] = useState('')
   const [imagenUrl, setImagenUrl] = useState('')
   const [uploadingImage, setUploadingImage] = useState(false)
+  // Cada fila es una combinación color + talla con su propia cantidad
+  const [variantes, setVariantes] = useState([{ color: '', talla: 'M', cantidad: '' }])
 
   // Modal Etiqueta / Código de Barras
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
@@ -197,20 +196,35 @@ export default function InventarioPage() {
 
   const handleCrearProducto = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!nombre || !precio || !cantidad) {
+    if (!nombre || !precio) {
       toast.error('Por favor completa los campos obligatorios')
       return
     }
+
+    const variantesValidas = variantes.filter(
+      v => v.color.trim() !== '' && v.talla.trim() !== '' && parseInt(v.cantidad) > 0
+    )
+    if (variantesValidas.length === 0) {
+      toast.error('Agrega al menos un color con su talla y cantidad')
+      return
+    }
+
+    // El color del producto resume los colores cargados, para mostrarlo en listados
+    const coloresUnicos = Array.from(new Set(variantesValidas.map(v => v.color.trim())))
 
     const res = await registrarRecepcionMercaderia({
       codigo_barras: sku || undefined,
       nombre,
       categoria,
-      color_principal: colorPrincipal || 'Sin especificar',
+      color_principal: coloresUnicos.join(', '),
       costo_inversion: parseFloat(costo) || 0,
       precio_venta: parseFloat(precio),
       imagen_url: imagenUrl || undefined,
-      tallas: [{ talla, color: colorPrincipal || 'Sin especificar', cantidad: parseInt(cantidad) }],
+      tallas: variantesValidas.map(v => ({
+        talla: v.talla.trim(),
+        color: v.color.trim(),
+        cantidad: parseInt(v.cantidad),
+      })),
       usuarioNombre: user?.name,
       usuario_id: user?.id,
     })
@@ -220,11 +234,10 @@ export default function InventarioPage() {
       setIsModalOpen(false)
       setNombre('')
       setSku('')
-      setColorPrincipal('')
       setPrecio('')
       setCosto('')
-      setCantidad('')
       setImagenUrl('')
+      setVariantes([{ color: '', talla: 'M', cantidad: '' }])
       cargarInventario()
     } else {
       toast.error(res.error || 'Error al guardar la prenda')
@@ -692,17 +705,6 @@ export default function InventarioPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Color</label>
-                  <input
-                    type="text"
-                    placeholder="Ej. Negro, Rosa Pastel, Terracotta..."
-                    value={colorPrincipal}
-                    onChange={e => setColorPrincipal(e.target.value)}
-                    className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
-                  />
-                </div>
-
-                <div>
                   <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Fotografía de la Prenda</label>
                   <div className="flex items-center gap-4">
                     {imagenUrl ? (
@@ -729,22 +731,7 @@ export default function InventarioPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Talla</label>
-                    <select
-                      value={talla}
-                      onChange={e => setTalla(e.target.value)}
-                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
-                    >
-                      <option value="XS">XS</option>
-                      <option value="S">S</option>
-                      <option value="M">M</option>
-                      <option value="L">L</option>
-                      <option value="XL">XL</option>
-                      <option value="Única">Única</option>
-                    </select>
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Costo (S/.)</label>
                     <input
@@ -770,16 +757,91 @@ export default function InventarioPage() {
                   </div>
                 </div>
 
+                {/* Stock inicial: una fila por cada combinación color + talla */}
                 <div>
-                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Stock Inicial *</label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="10"
-                    value={cantidad}
-                    onChange={e => setCantidad(e.target.value)}
-                    className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider">Stock Inicial por Color y Talla *</label>
+                    <button
+                      type="button"
+                      onClick={() => setVariantes([...variantes, { color: '', talla: 'M', cantidad: '' }])}
+                      className="flex items-center gap-1 text-xs font-bold text-primary hover:opacity-80"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Añadir Color/Talla
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mb-3">
+                    Ej: 4 Negro talla M y 5 Rosado talla S son dos filas distintas.
+                  </p>
+
+                  <div className="space-y-2">
+                    {variantes.map((v, index) => (
+                      <div key={index} className="flex gap-2 items-end bg-card p-3 rounded-2xl border border-border">
+                        <div className="flex-1 min-w-0">
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Color</label>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="h-3.5 w-3.5 rounded-full border border-black/10 shadow-sm flex-shrink-0"
+                              style={{ backgroundColor: obtenerColorHex(v.color) }}
+                            />
+                            <input
+                              type="text"
+                              placeholder="Negro, Rosa..."
+                              value={v.color}
+                              onChange={e => {
+                                const nuevas = [...variantes]
+                                nuevas[index].color = e.target.value
+                                setVariantes(nuevas)
+                              }}
+                              className="w-full bg-transparent text-sm font-bold text-foreground focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                        <div className="w-20">
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Talla</label>
+                          <select
+                            value={v.talla}
+                            onChange={e => {
+                              const nuevas = [...variantes]
+                              nuevas[index].talla = e.target.value
+                              setVariantes(nuevas)
+                            }}
+                            className="w-full bg-transparent text-sm font-bold text-foreground focus:outline-none"
+                          >
+                            <option value="XS">XS</option>
+                            <option value="S">S</option>
+                            <option value="M">M</option>
+                            <option value="L">L</option>
+                            <option value="XL">XL</option>
+                            <option value="Única">Única</option>
+                          </select>
+                        </div>
+                        <div className="w-20">
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Cant.</label>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="0"
+                            value={v.cantidad}
+                            onChange={e => {
+                              const nuevas = [...variantes]
+                              nuevas[index].cantidad = e.target.value
+                              setVariantes(nuevas)
+                            }}
+                            className="w-full bg-transparent text-base font-extrabold text-primary focus:outline-none"
+                          />
+                        </div>
+                        {variantes.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setVariantes(variantes.filter((_, i) => i !== index))}
+                            className="text-muted-foreground hover:text-destructive p-1.5"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-end gap-3 pt-6 border-t border-border mt-6">
