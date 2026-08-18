@@ -6,10 +6,24 @@ import { Layout } from '@/components/Layout'
 import { obtenerProductosInventario, registrarRecepcionMercaderia } from '@/app/actions/recepcion'
 import { actualizarProducto, cambiarEstadoProducto, ajustarStockManual, obtenerMovimientos } from '@/app/actions/productos'
 import { useAuth } from '@/context/AuthContext'
+import { obtenerColorHex } from '@/lib/colores'
 import { Package, Search, Plus, AlertTriangle, Tag, ScanLine, Download, Printer, Barcode as BarcodeIcon, Image as ImageIcon, Eye, TrendingUp, ChevronLeft, ChevronRight, Pencil, History, Ban, RotateCcw, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 const STOCK_BAJO_THRESHOLD = 3
+
+// Agrupa las filas de stock por color, para mostrar las tallas de cada color juntas
+function agruparPorColor(inventarioTallas: any[]): { color: string; tallas: any[] }[] {
+  const mapa = new Map<string, any[]>()
+  ;(inventarioTallas || []).forEach(t => {
+    const lista = mapa.get(t.color) || []
+    lista.push(t)
+    mapa.set(t.color, lista)
+  })
+  return Array.from(mapa.entries())
+    .map(([color, tallas]) => ({ color, tallas }))
+    .sort((a, b) => a.color.localeCompare(b.color))
+}
 
 export default function InventarioPage() {
   const { user } = useAuth()
@@ -64,6 +78,7 @@ export default function InventarioPage() {
   const [loadingMovimientos, setLoadingMovimientos] = useState(false)
   const [mostrarFormAjuste, setMostrarFormAjuste] = useState(false)
   const [ajusteTalla, setAjusteTalla] = useState('')
+  const [ajusteColor, setAjusteColor] = useState('')
   const [ajusteTipo, setAjusteTipo] = useState<'ingreso' | 'salida' | 'ajuste'>('salida')
   const [ajusteCantidad, setAjusteCantidad] = useState('')
   const [ajusteMotivo, setAjusteMotivo] = useState('')
@@ -191,11 +206,11 @@ export default function InventarioPage() {
       codigo_barras: sku || undefined,
       nombre,
       categoria,
-      color_principal: colorPrincipal || 'General',
+      color_principal: colorPrincipal || 'Sin especificar',
       costo_inversion: parseFloat(costo) || 0,
       precio_venta: parseFloat(precio),
       imagen_url: imagenUrl || undefined,
-      tallas: [{ talla, cantidad: parseInt(cantidad) }],
+      tallas: [{ talla, color: colorPrincipal || 'Sin especificar', cantidad: parseInt(cantidad) }],
       usuarioNombre: user?.name,
       usuario_id: user?.id,
     })
@@ -313,14 +328,15 @@ export default function InventarioPage() {
 
   const handleGuardarAjuste = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!ajusteTalla || !ajusteCantidad || !ajusteMotivo.trim()) {
-      toast.error('Completa talla, cantidad y motivo del ajuste')
+    if (!ajusteTalla || !ajusteColor.trim() || !ajusteCantidad || !ajusteMotivo.trim()) {
+      toast.error('Completa color, talla, cantidad y motivo del ajuste')
       return
     }
     setGuardandoAjuste(true)
     const res = await ajustarStockManual({
       producto_id: productoSeleccionado.id,
       talla: ajusteTalla,
+      color: ajusteColor.trim(),
       cantidad: parseInt(ajusteCantidad),
       tipo: ajusteTipo,
       motivo: ajusteMotivo.trim(),
@@ -332,6 +348,7 @@ export default function InventarioPage() {
     if (res.success) {
       toast.success(res.message)
       setAjusteTalla('')
+      setAjusteColor('')
       setAjusteCantidad('')
       setAjusteMotivo('')
       setAjusteTipo('salida')
@@ -352,10 +369,10 @@ export default function InventarioPage() {
       return
     }
 
-    const headers = ['Nombre', 'Código / EAN', 'Lote', 'Categoría', 'Precio Venta (S/.)', 'Costo Inversión (S/.)', 'Margen (S/.)', 'Stock Total', 'Desglose Tallas']
+    const headers = ['Nombre', 'Código / EAN', 'Lote', 'Categoría', 'Precio Venta (S/.)', 'Costo Inversión (S/.)', 'Margen (S/.)', 'Stock Total', 'Desglose Color y Talla']
     const rows = productosFiltrados.map(item => {
       const totalStock = item.inventario_tallas?.reduce((acc: number, t: any) => acc + t.cantidad, 0) || 0
-      const tallasString = item.inventario_tallas?.map((t: any) => `${t.talla}: ${t.cantidad}`).join(' | ') || 'Sin tallas'
+      const tallasString = item.inventario_tallas?.map((t: any) => `${t.color} ${t.talla}: ${t.cantidad}`).join(' | ') || 'Sin stock'
       const margen = Number(item.precio_venta || 0) - Number(item.costo_inversion || 0)
 
       return [
@@ -546,7 +563,11 @@ export default function InventarioPage() {
                         <td className="py-4 px-4">
                           <div className="flex flex-wrap gap-1">
                             {item.inventario_tallas?.map((t: any) => (
-                              <span key={t.id} className="px-2 py-0.5 bg-muted rounded text-xs font-bold text-foreground">
+                              <span key={t.id} className="px-2 py-0.5 bg-muted rounded text-xs font-bold text-foreground flex items-center gap-1" title={`${t.color} · Talla ${t.talla}`}>
+                                <span
+                                  className="h-2 w-2 rounded-full border border-black/10 flex-shrink-0"
+                                  style={{ backgroundColor: obtenerColorHex(t.color) }}
+                                />
                                 {t.talla}: {t.cantidad}
                               </span>
                             ))}
@@ -989,12 +1010,25 @@ export default function InventarioPage() {
                       </div>
 
                       <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Desglose de Stock por Tallas</span>
-                        <div className="flex flex-wrap gap-2">
-                          {productoSeleccionado.inventario_tallas?.map((t: any) => (
-                            <div key={t.id} className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold text-foreground flex items-center gap-1.5 shadow-sm">
-                              <span>{t.talla}:</span>
-                              <span className="text-primary font-extrabold">{t.cantidad} un.</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Desglose de Stock por Color y Talla</span>
+                        <div className="space-y-2">
+                          {agruparPorColor(productoSeleccionado.inventario_tallas).map(grupo => (
+                            <div key={grupo.color}>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span
+                                  className="h-3 w-3 rounded-full border border-black/10 shadow-sm flex-shrink-0"
+                                  style={{ backgroundColor: obtenerColorHex(grupo.color) }}
+                                />
+                                <span className="text-[11px] font-bold text-foreground">{grupo.color}</span>
+                              </div>
+                              <div className="flex flex-wrap gap-2 pl-4.5">
+                                {grupo.tallas.map((t: any) => (
+                                  <div key={t.id} className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold text-foreground flex items-center gap-1.5 shadow-sm">
+                                    <span>{t.talla}:</span>
+                                    <span className="text-primary font-extrabold">{t.cantidad} un.</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1020,18 +1054,44 @@ export default function InventarioPage() {
                     {mostrarFormAjuste && (
                       <form onSubmit={handleGuardarAjuste} className="mb-4 p-4 rounded-2xl bg-muted/30 border border-border grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
                         <div>
+                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Color</label>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="h-3.5 w-3.5 rounded-full border border-black/10 flex-shrink-0"
+                              style={{ backgroundColor: obtenerColorHex(ajusteColor) }}
+                            />
+                            <input
+                              type="text"
+                              list="colores-existentes"
+                              placeholder="Negro, Rosa..."
+                              value={ajusteColor}
+                              onChange={e => setAjusteColor(e.target.value)}
+                              required
+                              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground"
+                            />
+                          </div>
+                          <datalist id="colores-existentes">
+                            {Array.from(new Set(productoSeleccionado.inventario_tallas?.map((t: any) => t.color) || [])).map((c: any) => (
+                              <option key={c} value={c} />
+                            ))}
+                          </datalist>
+                        </div>
+                        <div>
                           <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Talla</label>
-                          <select
+                          <input
+                            type="text"
+                            list="tallas-existentes"
+                            placeholder="S, M, L..."
                             value={ajusteTalla}
                             onChange={e => setAjusteTalla(e.target.value)}
                             required
                             className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground"
-                          >
-                            <option value="">--</option>
-                            {productoSeleccionado.inventario_tallas?.map((t: any) => (
-                              <option key={t.id} value={t.talla}>{t.talla} (stock: {t.cantidad})</option>
+                          />
+                          <datalist id="tallas-existentes">
+                            {Array.from(new Set(productoSeleccionado.inventario_tallas?.map((t: any) => t.talla) || [])).map((t: any) => (
+                              <option key={t} value={t} />
                             ))}
-                          </select>
+                          </datalist>
                         </div>
                         <div>
                           <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Tipo</label>
@@ -1102,7 +1162,7 @@ export default function InventarioPage() {
                               </span>
                               <div className="min-w-0">
                                 <p className="text-xs font-bold text-foreground truncate">{m.motivo || (m.tipo === 'ingreso' ? 'Ingreso de stock' : m.tipo === 'salida' ? 'Salida de stock' : 'Ajuste de stock')}</p>
-                                <p className="text-[10px] text-muted-foreground">Talla {m.talla} · {new Date(m.fecha_hora).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                                <p className="text-[10px] text-muted-foreground">{m.color} · Talla {m.talla} · {new Date(m.fecha_hora).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                               </div>
                             </div>
                             <span className={`text-sm font-extrabold flex-shrink-0 ${m.tipo === 'salida' ? 'text-destructive' : 'text-emerald-600'}`}>

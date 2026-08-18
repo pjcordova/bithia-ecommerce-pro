@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { Layout } from '@/components/Layout'
 import { useAuth } from '@/context/AuthContext'
 import { obtenerDatosPOS, confirmarVentaPOS } from '@/app/actions/pos'
+import { obtenerColorHex } from '@/lib/colores'
 import { ShoppingCart, Search, Plus, Minus, CheckCircle2, Trash2, Package, X, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -15,39 +16,7 @@ const METODOS_PAGO = [
 ] as const
 
 type MetodoPago = typeof METODOS_PAGO[number]['value']
-type CartItem = { producto: any; talla: string; cantidad: number }
-
-// Traduce el nombre de color guardado en el producto (ej. "Rosa Pastel") a un hex aproximado
-// para pintar el punto de color en la tarjeta. Coincidencia parcial sobre palabras clave.
-const MAPA_COLORES: Record<string, string> = {
-  negro: '#1a1a1a',
-  blanco: '#f8f8f8',
-  perla: '#f3ece4',
-  beige: '#d9c7ab',
-  camel: '#c19a6b',
-  terracotta: '#c1633d',
-  rosa: '#f4b8c6',
-  rojo: '#c0392b',
-  azul: '#2e5fa3',
-  celeste: '#7ec8e3',
-  verde: '#3d8b5f',
-  amarillo: '#e8c547',
-  naranja: '#e08430',
-  morado: '#7d5ba6',
-  violeta: '#8e6bb0',
-  gris: '#9a9a9a',
-  plomo: '#7d7d7d',
-  marron: '#6b4a34',
-  dorado: '#c9a227',
-  plateado: '#c0c0c0',
-  crema: '#f0e6d2',
-}
-
-const obtenerColorHex = (nombreColor?: string): string => {
-  const normalizado = (nombreColor || '').toLowerCase()
-  const clave = Object.keys(MAPA_COLORES).find(k => normalizado.includes(k))
-  return clave ? MAPA_COLORES[clave] : '#c9a48d'
-}
+type CartItem = { producto: any; talla: string; color: string; cantidad: number }
 
 export default function PosPage() {
   const { user } = useAuth()
@@ -103,51 +72,53 @@ export default function PosPage() {
       })
     })
     if (!q) return items
-    return items.filter(({ producto }) =>
+    return items.filter(({ producto, talla }) =>
       producto.nombre.toLowerCase().includes(q) ||
       producto.categoria.toLowerCase().includes(q) ||
+      talla.color?.toLowerCase().includes(q) ||
       producto.codigo_barras?.toLowerCase().includes(q)
     )
   }, [productos, busqueda, filtroCategoria])
 
-  const cantidadEnCarrito = (productoId: string, talla: string) =>
-    cart.find(c => c.producto.id === productoId && c.talla === talla)?.cantidad || 0
+  // Cada línea del carrito es una combinación única de producto + color + talla
+  const cantidadEnCarrito = (productoId: string, talla: string, color: string) =>
+    cart.find(c => c.producto.id === productoId && c.talla === talla && c.color === color)?.cantidad || 0
 
-  const addToCart = (producto: any, talla: string) => {
+  const addToCart = (producto: any, talla: string, color: string) => {
     setCart(prev => {
-      const existe = prev.find(c => c.producto.id === producto.id && c.talla === talla)
-      if (existe) return prev.map(c => c.producto.id === producto.id && c.talla === talla ? { ...c, cantidad: c.cantidad + 1 } : c)
-      return [...prev, { producto, talla, cantidad: 1 }]
+      const existe = prev.find(c => c.producto.id === producto.id && c.talla === talla && c.color === color)
+      if (existe) return prev.map(c => c.producto.id === producto.id && c.talla === talla && c.color === color ? { ...c, cantidad: c.cantidad + 1 } : c)
+      return [...prev, { producto, talla, color, cantidad: 1 }]
     })
   }
 
-  const updateCartQty = (productoId: string, talla: string, qty: number) => {
+  const updateCartQty = (productoId: string, talla: string, color: string, qty: number) => {
     if (qty <= 0) {
-      setCart(prev => prev.filter(c => !(c.producto.id === productoId && c.talla === talla)))
+      setCart(prev => prev.filter(c => !(c.producto.id === productoId && c.talla === talla && c.color === color)))
       return
     }
-    setCart(prev => prev.map(c => c.producto.id === productoId && c.talla === talla ? { ...c, cantidad: qty } : c))
+    setCart(prev => prev.map(c => c.producto.id === productoId && c.talla === talla && c.color === color ? { ...c, cantidad: qty } : c))
   }
 
-  const removeFromCart = (productoId: string, talla: string) => {
-    setCart(prev => prev.filter(c => !(c.producto.id === productoId && c.talla === talla)))
+  const removeFromCart = (productoId: string, talla: string, color: string) => {
+    setCart(prev => prev.filter(c => !(c.producto.id === productoId && c.talla === talla && c.color === color)))
   }
 
-  const handleAgregar = (producto: any, talla: string, stockDisponible: number) => {
-    if (cantidadEnCarrito(producto.id, talla) >= stockDisponible) {
+  const handleAgregar = (producto: any, talla: string, color: string, stockDisponible: number) => {
+    if (cantidadEnCarrito(producto.id, talla, color) >= stockDisponible) {
       toast.error('Stock máximo alcanzado')
       return
     }
-    addToCart(producto, talla)
+    addToCart(producto, talla, color)
   }
 
-  const handleCambiarCantidad = (productoId: string, talla: string, delta: number, stockDisponible: number) => {
-    const nueva = cantidadEnCarrito(productoId, talla) + delta
+  const handleCambiarCantidad = (productoId: string, talla: string, color: string, delta: number, stockDisponible: number) => {
+    const nueva = cantidadEnCarrito(productoId, talla, color) + delta
     if (nueva > stockDisponible) {
       toast.error('Stock insuficiente')
       return
     }
-    updateCartQty(productoId, talla, nueva)
+    updateCartQty(productoId, talla, color, nueva)
   }
 
   const totalCarrito = cart.reduce((sum, item) => sum + item.producto.precio_venta * item.cantidad, 0)
@@ -168,6 +139,7 @@ export default function PosPage() {
       items: cart.map(c => ({
         producto_id: c.producto.id,
         talla: c.talla,
+        color: c.color,
         cantidad: c.cantidad,
         precio_venta_unitario: c.producto.precio_venta,
         costo_inversion_unitario: c.producto.costo_inversion,
@@ -280,10 +252,10 @@ export default function PosPage() {
         <p className="text-sm text-muted-foreground text-center py-8">El carrito está vacío</p>
       ) : (
         cart.map(item => {
-          const invItem = item.producto.inventario_tallas?.find((t: any) => t.talla === item.talla)
+          const invItem = item.producto.inventario_tallas?.find((t: any) => t.talla === item.talla && t.color === item.color)
           const stockDisponible = invItem?.cantidad || 0
           return (
-            <div key={`${item.producto.id}-${item.talla}`} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-muted/40 border border-border/50">
+            <div key={`${item.producto.id}-${item.talla}-${item.color}`} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-muted/40 border border-border/50">
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 {item.producto.imagen_url ? (
                   <img src={item.producto.imagen_url} alt={item.producto.nombre} className="h-11 w-11 rounded-lg object-cover border border-border flex-shrink-0" />
@@ -294,18 +266,25 @@ export default function PosPage() {
                 )}
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-foreground truncate">{item.producto.nombre}</p>
-                  <p className="text-xs text-muted-foreground">Talla {item.talla} · S/ {item.producto.precio_venta.toFixed(2)} c/u</p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full border border-black/10 flex-shrink-0"
+                      style={{ backgroundColor: obtenerColorHex(item.color) }}
+                    />
+                    {item.color} · Talla {item.talla}
+                  </p>
+                  <p className="text-xs text-muted-foreground">S/ {item.producto.precio_venta.toFixed(2)} c/u</p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <button onClick={() => handleCambiarCantidad(item.producto.id, item.talla, -1, stockDisponible)} className="p-2 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all">
+                <button onClick={() => handleCambiarCantidad(item.producto.id, item.talla, item.color, -1, stockDisponible)} className="p-2 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all">
                   <Minus className="h-3.5 w-3.5" />
                 </button>
                 <span className="text-xs font-bold text-foreground w-4 text-center">{item.cantidad}</span>
-                <button onClick={() => handleCambiarCantidad(item.producto.id, item.talla, 1, stockDisponible)} className="p-2 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all">
+                <button onClick={() => handleCambiarCantidad(item.producto.id, item.talla, item.color, 1, stockDisponible)} className="p-2 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all">
                   <Plus className="h-3.5 w-3.5" />
                 </button>
-                <button onClick={() => removeFromCart(item.producto.id, item.talla)} className="p-2 rounded-lg text-destructive hover:bg-red-50 ml-1 active:scale-95 transition-all">
+                <button onClick={() => removeFromCart(item.producto.id, item.talla, item.color)} className="p-2 rounded-lg text-destructive hover:bg-red-50 ml-1 active:scale-95 transition-all">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -384,12 +363,12 @@ export default function PosPage() {
                 </div>
               ) : (
                 itemsDisponibles.map(({ talla, producto }) => {
-                  const enCarrito = cantidadEnCarrito(producto.id, talla.talla)
+                  const enCarrito = cantidadEnCarrito(producto.id, talla.talla, talla.color)
                   const stockRestante = talla.cantidad - enCarrito
                   return (
                     <div
                       key={talla.id}
-                      onClick={() => handleAgregar(producto, talla.talla, talla.cantidad)}
+                      onClick={() => handleAgregar(producto, talla.talla, talla.color, talla.cantidad)}
                       className="rounded-2xl bg-card border border-border hover:border-primary hover:shadow-lg active:scale-[0.98] transition-all cursor-pointer flex flex-col justify-between overflow-hidden"
                     >
                       <div className="relative aspect-[4/5] w-full bg-muted/40 flex items-center justify-center p-3">
@@ -412,10 +391,10 @@ export default function PosPage() {
                           <div className="flex items-center gap-1.5 mt-1.5">
                             <span
                               className="h-3 w-3 rounded-full border border-black/10 shadow-sm flex-shrink-0"
-                              style={{ backgroundColor: obtenerColorHex(producto.color_principal) }}
-                              title={producto.color_principal}
+                              style={{ backgroundColor: obtenerColorHex(talla.color) }}
+                              title={talla.color}
                             />
-                            <span className="text-[10px] text-muted-foreground truncate">{producto.color_principal}</span>
+                            <span className="text-[10px] text-muted-foreground truncate">{talla.color}</span>
                           </div>
                         </div>
                         <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border">

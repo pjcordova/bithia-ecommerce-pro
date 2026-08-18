@@ -74,7 +74,7 @@ export async function registrarRecepcionMercaderia(data: {
     costo_inversion: number
     precio_venta: number
     imagen_url?: string
-    tallas: { talla: string; cantidad: number }[]
+    tallas: { talla: string; color: string; cantidad: number }[]
     usuarioNombre?: string
     usuario_id?: string
 }) {
@@ -117,6 +117,7 @@ export async function registrarRecepcionMercaderia(data: {
                     inventario_tallas: {
                         create: tallas.map(t => ({
                             talla: t.talla.toUpperCase(),
+                            color: t.color,
                             cantidad: t.cantidad
                         }))
                     }
@@ -128,6 +129,7 @@ export async function registrarRecepcionMercaderia(data: {
                 data: tallas.map(t => ({
                     producto_id: producto!.id,
                     talla: t.talla.toUpperCase(),
+                    color: t.color,
                     tipo: 'ingreso',
                     cantidad: t.cantidad,
                     motivo: `Recepción — Lote ${numeroLote}${usuarioNombre ? ` (${usuarioNombre})` : ''}`,
@@ -156,20 +158,22 @@ export async function registrarRecepcionMercaderia(data: {
 
         for (const t of tallas) {
             const tallaUpper = t.talla.toUpperCase()
-            const tallaExistente = producto.inventario_tallas.find(
-                (item: any) => item.talla.toUpperCase() === tallaUpper
+            // Cada combinación color+talla es una fila de stock distinta
+            const existente = producto.inventario_tallas.find(
+                (item: any) => item.talla.toUpperCase() === tallaUpper && item.color === t.color
             )
 
-            if (tallaExistente) {
+            if (existente) {
                 await prisma.inventario_tallas.update({
-                    where: { id: tallaExistente.id },
-                    data: { cantidad: tallaExistente.cantidad + t.cantidad }
+                    where: { id: existente.id },
+                    data: { cantidad: existente.cantidad + t.cantidad }
                 })
             } else {
                 await prisma.inventario_tallas.create({
                     data: {
                         producto_id: producto.id,
                         talla: tallaUpper,
+                        color: t.color,
                         cantidad: t.cantidad
                     }
                 })
@@ -180,6 +184,7 @@ export async function registrarRecepcionMercaderia(data: {
             data: tallas.map(t => ({
                 producto_id: producto!.id,
                 talla: t.talla.toUpperCase(),
+                color: t.color,
                 tipo: 'ingreso',
                 cantidad: t.cantidad,
                 motivo: `Recepción — Lote ${numeroLote}${usuarioNombre ? ` (${usuarioNombre})` : ''}`,

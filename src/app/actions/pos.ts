@@ -30,7 +30,7 @@ export async function obtenerDatosPOS() {
 }
 
 export async function confirmarVentaPOS(data: {
-    items: { producto_id: string; talla: string; cantidad: number; precio_venta_unitario: number; costo_inversion_unitario: number }[]
+    items: { producto_id: string; talla: string; color: string; cantidad: number; precio_venta_unitario: number; costo_inversion_unitario: number }[]
     canal_venta: 'stand' | 'instagram'
     metodo_pago: 'efectivo' | 'yape' | 'plin' | 'transferencia' | 'tarjeta'
     cliente_id?: string
@@ -51,11 +51,11 @@ export async function confirmarVentaPOS(data: {
             for (const item of items) {
                 const tallaUpper = item.talla.toUpperCase()
                 const inv = await tx.inventario_tallas.findFirst({
-                    where: { producto_id: item.producto_id, talla: tallaUpper }
+                    where: { producto_id: item.producto_id, talla: tallaUpper, color: item.color }
                 })
                 if (!inv || inv.cantidad < item.cantidad) {
                     const producto = await tx.productos.findUnique({ where: { id: item.producto_id } })
-                    throw new Error(`Stock insuficiente para "${producto?.nombre || 'una prenda'}" (talla ${tallaUpper}). Actualiza la página e intenta de nuevo.`)
+                    throw new Error(`Stock insuficiente para "${producto?.nombre || 'una prenda'}" (${item.color}, talla ${tallaUpper}). Actualiza la página e intenta de nuevo.`)
                 }
             }
 
@@ -105,6 +105,7 @@ export async function confirmarVentaPOS(data: {
                         venta_id: venta.id,
                         producto_id: item.producto_id,
                         talla: tallaUpper,
+                        color: item.color,
                         cantidad: item.cantidad,
                         costo_inversion_unitario: item.costo_inversion_unitario,
                         precio_venta_unitario: item.precio_venta_unitario,

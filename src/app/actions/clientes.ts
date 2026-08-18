@@ -119,6 +119,7 @@ export async function obtenerHistorialCompras(clienteId: string) {
             items: v.detalle_ventas.map(d => ({
                 nombre: d.productos.nombre,
                 talla: d.talla,
+                color: d.color,
                 cantidad: d.cantidad,
                 subtotal: Number(d.subtotal),
             })),

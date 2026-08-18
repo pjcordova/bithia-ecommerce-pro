@@ -526,7 +526,7 @@ function ClientesContent() {
                           <div className="flex flex-wrap gap-1">
                             {v.items.map((item: any, i: number) => (
                               <span key={i} className="text-[10px] font-medium bg-secondary px-2 py-0.5 rounded text-foreground">
-                                {item.nombre} ({item.talla}) x{item.cantidad}
+                                {item.nombre} ({item.color} · {item.talla}) x{item.cantidad}
                               </span>
                             ))}
                           </div>

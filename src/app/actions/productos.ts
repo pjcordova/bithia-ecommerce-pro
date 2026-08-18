@@ -53,6 +53,7 @@ export async function cambiarEstadoProducto(id: string, activo: boolean) {
 export async function ajustarStockManual(data: {
     producto_id: string
     talla: string
+    color: string
     cantidad: number
     tipo: 'ingreso' | 'salida' | 'ajuste'
     motivo: string
@@ -60,14 +61,14 @@ export async function ajustarStockManual(data: {
     usuario_id?: string
 }) {
     try {
-        const { producto_id, talla, cantidad, tipo, motivo, usuarioNombre, usuario_id } = data
+        const { producto_id, talla, color, cantidad, tipo, motivo, usuarioNombre, usuario_id } = data
         if (!cantidad || cantidad <= 0) {
             return { success: false, error: "La cantidad debe ser mayor a cero" }
         }
         const tallaUpper = talla.toUpperCase()
 
         const inventarioTalla = await prisma.inventario_tallas.findFirst({
-            where: { producto_id, talla: tallaUpper }
+            where: { producto_id, talla: tallaUpper, color }
         })
 
         const stockActual = inventarioTalla?.cantidad || 0
@@ -75,7 +76,7 @@ export async function ajustarStockManual(data: {
         if (tipo === 'salida' && cantidad > stockActual) {
             return {
                 success: false,
-                error: `No puedes retirar ${cantidad} unidades: solo hay ${stockActual} en stock para la talla ${tallaUpper}.`,
+                error: `No puedes retirar ${cantidad} unidades: solo hay ${stockActual} en stock para ${color} talla ${tallaUpper}.`,
             }
         }
 
@@ -89,7 +90,7 @@ export async function ajustarStockManual(data: {
             })
         } else {
             await prisma.inventario_tallas.create({
-                data: { producto_id, talla: tallaUpper, cantidad: nuevaCantidad }
+                data: { producto_id, talla: tallaUpper, color, cantidad: nuevaCantidad }
             })
         }
 
@@ -97,6 +98,7 @@ export async function ajustarStockManual(data: {
             data: {
                 producto_id,
                 talla: tallaUpper,
+                color,
                 tipo,
                 cantidad,
                 motivo: usuarioNombre ? `${motivo} (${usuarioNombre})` : motivo,

@@ -4,6 +4,7 @@ import { Layout } from '@/components/Layout';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { buscarProductoPorCodigo, registrarRecepcionMercaderia } from '@/app/actions/recepcion';
 import { useAuth } from '@/context/AuthContext';
+import { obtenerColorHex } from '@/lib/colores';
 import { Package, ScanLine, AlertCircle, PlusCircle, Save, Image as ImageIcon, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -16,17 +17,16 @@ export default function RecepcionMercaderiaPage() {
     // Estados del Formulario
     const [nombre, setNombre] = useState('');
     const [categoria, setCategoria] = useState('Blusas');
-    const [colorPrincipal, setColorPrincipal] = useState('');
     const [costoInversion, setCostoInversion] = useState('');
     const [precioVenta, setPrecioVenta] = useState('');
     const [imagenUrl, setImagenUrl] = useState('');
     const [uploadingImage, setUploadingImage] = useState(false);
 
-    // Matriz de Tallas (El "Bulto" de Lima)
+    // Matriz de Ingreso: cada fila es una combinación color + talla con su propio stock
     const [tallas, setTallas] = useState([
-        { talla: 'S', cantidad: 1 },
-        { talla: 'M', cantidad: 1 },
-        { talla: 'L', cantidad: 1 },
+        { talla: 'S', color: '', cantidad: 1 },
+        { talla: 'M', color: '', cantidad: 1 },
+        { talla: 'L', color: '', cantidad: 1 },
     ]);
 
     // Cálculos Financieros
@@ -48,7 +48,6 @@ export default function RecepcionMercaderiaPage() {
                 setIsProductoNuevo(false);
                 setNombre(res.producto.nombre);
                 setCategoria(res.producto.categoria);
-                setColorPrincipal(res.producto.color_principal);
                 setCostoInversion(res.producto.costo_inversion.toString());
                 setPrecioVenta(res.producto.precio_venta.toString());
                 setImagenUrl(res.producto.imagen_url || '');
@@ -57,7 +56,6 @@ export default function RecepcionMercaderiaPage() {
                 setIsProductoNuevo(true);
                 // Limpiar formulario para nuevo ingreso
                 setNombre('');
-                setColorPrincipal('');
                 setCostoInversion('');
                 setPrecioVenta('');
                 setImagenUrl('');
@@ -72,7 +70,7 @@ export default function RecepcionMercaderiaPage() {
     };
 
     const agregarTalla = () => {
-        setTallas([...tallas, { talla: '', cantidad: 1 }]);
+        setTallas([...tallas, { talla: '', color: '', cantidad: 1 }]);
     };
 
     // Cuando la cámara no logra leer el código, el sistema genera uno propio al guardar
@@ -80,7 +78,6 @@ export default function RecepcionMercaderiaPage() {
         setCodigoEscaneado('');
         setIsProductoNuevo(true);
         setNombre('');
-        setColorPrincipal('');
         setCostoInversion('');
         setPrecioVenta('');
         setImagenUrl('');
@@ -123,16 +120,25 @@ export default function RecepcionMercaderiaPage() {
             return;
         }
 
+        const filasValidas = tallas.filter(t => t.talla.trim() !== '' && t.color.trim() !== '');
+        if (filasValidas.length === 0) {
+            toast.error('Agrega al menos una fila con color y talla');
+            return;
+        }
+
+        // El color del producto resume los colores cargados, para mostrarlo en listados
+        const coloresUnicos = Array.from(new Set(filasValidas.map(t => t.color.trim())));
+
         setLoading(true);
         const res = await registrarRecepcionMercaderia({
             codigo_barras: codigoEscaneado || undefined,
             nombre,
             categoria,
-            color_principal: colorPrincipal || 'General',
+            color_principal: coloresUnicos.join(', '),
             costo_inversion: parseFloat(costoInversion),
             precio_venta: parseFloat(precioVenta),
             imagen_url: imagenUrl || undefined,
-            tallas: tallas.filter(t => t.talla.trim() !== ''), // Evitar tallas vacías
+            tallas: filasValidas.map(t => ({ ...t, color: t.color.trim() })),
             usuarioNombre: user?.name,
             usuario_id: user?.id,
         });
@@ -235,18 +241,6 @@ export default function RecepcionMercaderiaPage() {
                                 </div>
                             </div>
 
-                            {/* Bloque Color */}
-                            <div>
-                                <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Color</label>
-                                <input
-                                    type="text"
-                                    value={colorPrincipal}
-                                    onChange={(e) => setColorPrincipal(e.target.value)}
-                                    placeholder="Ej. Negro, Rosa Pastel, Terracotta..."
-                                    className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:ring-2 focus:ring-primary"
-                                />
-                            </div>
-
                             {/* Bloque Fotografía */}
                             <div>
                                 <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Fotografía de la Prenda</label>
@@ -305,23 +299,48 @@ export default function RecepcionMercaderiaPage() {
                                 </div>
                             </div>
 
-                            {/* Bloque 3: Matriz de Tallas */}
+                            {/* Bloque 3: Matriz Color + Talla */}
                             <div>
-                                <div className="flex justify-between items-center mb-3">
-                                    <label className="text-sm font-bold text-foreground">Matriz de Ingreso (Tallas recibidas)</label>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-sm font-bold text-foreground">Matriz de Ingreso (Color + Talla)</label>
                                     <button
                                         type="button"
                                         onClick={agregarTalla}
                                         className="flex items-center gap-1 text-xs font-bold text-primary hover:opacity-80"
                                     >
-                                        <PlusCircle className="h-4 w-4" /> Añadir Talla
+                                        <PlusCircle className="h-4 w-4" /> Añadir Fila
                                     </button>
                                 </div>
+                                <p className="text-xs text-muted-foreground mb-3">
+                                    Una fila por cada combinación. Ej: Negro/M/4 y Rosado/S/5 son dos filas distintas.
+                                </p>
 
                                 <div className="space-y-3">
                                     {tallas.map((t, index) => (
                                         <div key={index} className="flex gap-3 items-center bg-background p-3 rounded-xl border border-border">
-                                            <div className="flex-1">
+                                            <div className="flex-1 min-w-0">
+                                                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Color</label>
+                                                <div className="flex items-center gap-2">
+                                                    <span
+                                                        className="h-3.5 w-3.5 rounded-full border border-black/10 shadow-sm flex-shrink-0"
+                                                        style={{ backgroundColor: obtenerColorHex(t.color) }}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Negro, Rosa..."
+                                                        value={t.color}
+                                                        onChange={(e) => {
+                                                            const newTallas = [...tallas];
+                                                            newTallas[index].color = e.target.value;
+                                                            setTallas(newTallas);
+                                                        }}
+                                                        className="w-full bg-transparent text-sm font-bold focus:outline-none"
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="w-px h-8 bg-border"></div>
+                                            <div className="w-24">
                                                 <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Talla</label>
                                                 <input
                                                     type="text"
@@ -337,8 +356,8 @@ export default function RecepcionMercaderiaPage() {
                                                 />
                                             </div>
                                             <div className="w-px h-8 bg-border"></div>
-                                            <div className="w-32">
-                                                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Cant. Recibida</label>
+                                            <div className="w-24">
+                                                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Cantidad</label>
                                                 <input
                                                     type="number"
                                                     min="1"
