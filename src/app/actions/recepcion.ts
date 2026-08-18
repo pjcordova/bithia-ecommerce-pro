@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 export async function obtenerProductosInventario() {
     try {
         const productosRaw = await prisma.productos.findMany({
-            include: { inventario_tallas: true },
+            include: { inventario_tallas: true, producto_colores: true },
             orderBy: { created_at: 'desc' }
         })
 
@@ -75,11 +75,13 @@ export async function registrarRecepcionMercaderia(data: {
     precio_venta: number
     imagen_url?: string
     tallas: { talla: string; color: string; cantidad: number }[]
+    // Foto propia de cada color, para que el POS muestre la imagen correcta al elegirlo
+    fotosPorColor?: { color: string; imagen_url?: string }[]
     usuarioNombre?: string
     usuario_id?: string
 }) {
     try {
-        const { codigo_barras, nombre, categoria, color_principal, costo_inversion, precio_venta, imagen_url, tallas, usuarioNombre, usuario_id } = data
+        const { codigo_barras, nombre, categoria, color_principal, costo_inversion, precio_venta, imagen_url, tallas, fotosPorColor, usuarioNombre, usuario_id } = data
 
         const now = new Date()
         const anio = now.getFullYear().toString().slice(-2)
@@ -137,6 +139,8 @@ export async function registrarRecepcionMercaderia(data: {
                 }))
             })
 
+            await guardarColoresDeProducto(producto.id, tallas, fotosPorColor)
+
             revalidatePath('/inventario')
             revalidatePath('/inventario/recepcion')
             return {
@@ -192,6 +196,8 @@ export async function registrarRecepcionMercaderia(data: {
             }))
         })
 
+        await guardarColoresDeProducto(producto.id, tallas, fotosPorColor)
+
         revalidatePath('/inventario')
         revalidatePath('/inventario/recepcion')
         const unidadesIngresadas = tallas.reduce((s, t) => s + t.cantidad, 0)
@@ -204,5 +210,36 @@ export async function registrarRecepcionMercaderia(data: {
     } catch (error) {
         console.error("Error al registrar recepción:", error)
         return { success: false, error: "Hubo un error al registrar la recepción de mercadería." }
+    }
+}
+
+// Registra cada color del ingreso en producto_colores con su foto.
+// Si el color ya existía, solo actualiza la foto cuando se envió una nueva
+// (así no se borra una foto ya cargada al reponer stock sin adjuntar imagen).
+async function guardarColoresDeProducto(
+    productoId: string,
+    tallas: { color: string }[],
+    fotosPorColor?: { color: string; imagen_url?: string }[]
+) {
+    const coloresUnicos = Array.from(new Set(tallas.map(t => t.color)))
+
+    for (const color of coloresUnicos) {
+        const foto = fotosPorColor?.find(f => f.color === color)?.imagen_url || null
+        const existente = await prisma.producto_colores.findFirst({
+            where: { producto_id: productoId, color }
+        })
+
+        if (existente) {
+            if (foto) {
+                await prisma.producto_colores.update({
+                    where: { id: existente.id },
+                    data: { imagen_url: foto },
+                })
+            }
+        } else {
+            await prisma.producto_colores.create({
+                data: { producto_id: productoId, color, imagen_url: foto },
+            })
+        }
     }
 }

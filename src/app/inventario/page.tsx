@@ -4,10 +4,10 @@ import Link from 'next/link'
 import Barcode from 'react-barcode'
 import { Layout } from '@/components/Layout'
 import { obtenerProductosInventario, registrarRecepcionMercaderia } from '@/app/actions/recepcion'
-import { actualizarProducto, cambiarEstadoProducto, ajustarStockManual, obtenerMovimientos } from '@/app/actions/productos'
+import { actualizarProducto, cambiarEstadoProducto, ajustarStockManual, obtenerMovimientos, eliminarProducto } from '@/app/actions/productos'
 import { useAuth } from '@/context/AuthContext'
 import { obtenerColorHex } from '@/lib/colores'
-import { Package, Search, Plus, AlertTriangle, Tag, ScanLine, Download, Printer, Barcode as BarcodeIcon, Image as ImageIcon, Eye, TrendingUp, ChevronLeft, ChevronRight, Pencil, History, Ban, RotateCcw, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
+import { Package, Search, Plus, AlertTriangle, Tag, ScanLine, Download, Printer, Barcode as BarcodeIcon, Image as ImageIcon, Eye, TrendingUp, ChevronLeft, ChevronRight, Pencil, History, Ban, RotateCcw, ArrowUpCircle, ArrowDownCircle, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 const STOCK_BAJO_THRESHOLD = 3
@@ -47,8 +47,41 @@ export default function InventarioPage() {
   const [costo, setCosto] = useState('')
   const [imagenUrl, setImagenUrl] = useState('')
   const [uploadingImage, setUploadingImage] = useState(false)
-  // Cada fila es una combinación color + talla con su propia cantidad
-  const [variantes, setVariantes] = useState([{ color: '', talla: 'M', cantidad: '' }])
+  // Ingreso agrupado por color: cada color con su foto y sus tallas
+  type BloqueColor = {
+    color: string
+    imagen_url: string
+    subiendoFoto: boolean
+    tallas: { talla: string; cantidad: string }[]
+  }
+  const [bloques, setBloques] = useState<BloqueColor[]>([
+    { color: '', imagen_url: '', subiendoFoto: false, tallas: [{ talla: 'M', cantidad: '' }] },
+  ])
+
+  const actualizarBloque = (i: number, cambios: Partial<BloqueColor>) => {
+    setBloques(prev => prev.map((b, idx) => idx === i ? { ...b, ...cambios } : b))
+  }
+
+  const subirFotoColor = async (indiceBloque: number, file: File) => {
+    actualizarBloque(indiceBloque, { subiendoFoto: true })
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('upload_preset', 'bithia_preset')
+    try {
+      const res = await fetch(`https://api.cloudinary.com/v1_1/rrh7xuqq/image/upload`, { method: 'POST', body: formData })
+      const data = await res.json()
+      if (data.secure_url) {
+        actualizarBloque(indiceBloque, { imagen_url: data.secure_url, subiendoFoto: false })
+        toast.success('Foto del color subida')
+      } else {
+        actualizarBloque(indiceBloque, { subiendoFoto: false })
+        toast.error(data.error?.message || 'Error al subir la foto')
+      }
+    } catch {
+      actualizarBloque(indiceBloque, { subiendoFoto: false })
+      toast.error('Error de conexión al subir la foto')
+    }
+  }
 
   // Modal Etiqueta / Código de Barras
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
@@ -71,6 +104,8 @@ export default function InventarioPage() {
   // Dar de baja / reactivar prenda
   const [confirmBajaOpen, setConfirmBajaOpen] = useState(false)
   const [cambiandoEstado, setCambiandoEstado] = useState(false)
+  const [confirmEliminarOpen, setConfirmEliminarOpen] = useState(false)
+  const [eliminandoProducto, setEliminandoProducto] = useState(false)
 
   // Kardex de movimientos
   const [movimientos, setMovimientos] = useState<any[]>([])
@@ -201,16 +236,22 @@ export default function InventarioPage() {
       return
     }
 
-    const variantesValidas = variantes.filter(
-      v => v.color.trim() !== '' && v.talla.trim() !== '' && parseInt(v.cantidad) > 0
+    // Aplanar los bloques a filas color+talla, descartando lo incompleto
+    const bloquesValidos = bloques.filter(b => b.color.trim() !== '')
+    const filasValidas = bloquesValidos.flatMap(b =>
+      b.tallas
+        .filter(t => t.talla.trim() !== '' && parseInt(t.cantidad) > 0)
+        .map(t => ({ talla: t.talla.trim(), color: b.color.trim(), cantidad: parseInt(t.cantidad) }))
     )
-    if (variantesValidas.length === 0) {
+    if (filasValidas.length === 0) {
       toast.error('Agrega al menos un color con su talla y cantidad')
       return
     }
 
     // El color del producto resume los colores cargados, para mostrarlo en listados
-    const coloresUnicos = Array.from(new Set(variantesValidas.map(v => v.color.trim())))
+    const coloresUnicos = Array.from(new Set(filasValidas.map(v => v.color)))
+    // La primera foto de color sirve de imagen general de la prenda
+    const primeraFoto = bloquesValidos.find(b => b.imagen_url)?.imagen_url
 
     const res = await registrarRecepcionMercaderia({
       codigo_barras: sku || undefined,
@@ -219,12 +260,11 @@ export default function InventarioPage() {
       color_principal: coloresUnicos.join(', '),
       costo_inversion: parseFloat(costo) || 0,
       precio_venta: parseFloat(precio),
-      imagen_url: imagenUrl || undefined,
-      tallas: variantesValidas.map(v => ({
-        talla: v.talla.trim(),
-        color: v.color.trim(),
-        cantidad: parseInt(v.cantidad),
-      })),
+      imagen_url: imagenUrl || primeraFoto || undefined,
+      tallas: filasValidas,
+      fotosPorColor: bloquesValidos
+        .filter(b => b.imagen_url)
+        .map(b => ({ color: b.color.trim(), imagen_url: b.imagen_url })),
       usuarioNombre: user?.name,
       usuario_id: user?.id,
     })
@@ -237,7 +277,7 @@ export default function InventarioPage() {
       setPrecio('')
       setCosto('')
       setImagenUrl('')
-      setVariantes([{ color: '', talla: 'M', cantidad: '' }])
+      setBloques([{ color: '', imagen_url: '', subiendoFoto: false, tallas: [{ talla: 'M', cantidad: '' }] }])
       cargarInventario()
     } else {
       toast.error(res.error || 'Error al guardar la prenda')
@@ -329,6 +369,21 @@ export default function InventarioPage() {
     const res = await cambiarEstadoProducto(productoSeleccionado.id, nuevoEstado)
     setCambiandoEstado(false)
     setConfirmBajaOpen(false)
+
+    if (res.success) {
+      toast.success(res.message)
+      handleCerrarDetalle()
+      cargarInventario()
+    } else {
+      toast.error(res.error)
+    }
+  }
+
+  const handleConfirmarEliminar = async () => {
+    setEliminandoProducto(true)
+    const res = await eliminarProducto(productoSeleccionado.id)
+    setEliminandoProducto(false)
+    setConfirmEliminarOpen(false)
 
     if (res.success) {
       toast.success(res.message)
@@ -757,88 +812,149 @@ export default function InventarioPage() {
                   </div>
                 </div>
 
-                {/* Stock inicial: una fila por cada combinación color + talla */}
+                {/* Stock inicial agrupado por color, cada uno con su foto */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider">Stock Inicial por Color y Talla *</label>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider">Colores y Stock Inicial *</label>
                     <button
                       type="button"
-                      onClick={() => setVariantes([...variantes, { color: '', talla: 'M', cantidad: '' }])}
+                      onClick={() => setBloques([...bloques, { color: '', imagen_url: '', subiendoFoto: false, tallas: [{ talla: 'M', cantidad: '' }] }])}
                       className="flex items-center gap-1 text-xs font-bold text-primary hover:opacity-80"
                     >
-                      <Plus className="h-3.5 w-3.5" /> Añadir Color/Talla
+                      <Plus className="h-3.5 w-3.5" /> Añadir Color
                     </button>
                   </div>
                   <p className="text-[11px] text-muted-foreground mb-3">
-                    Ej: 4 Negro talla M y 5 Rosado talla S son dos filas distintas.
+                    Cada color con su foto y las tallas que tienes de ese color.
                   </p>
 
-                  <div className="space-y-2">
-                    {variantes.map((v, index) => (
-                      <div key={index} className="flex gap-2 items-end bg-card p-3 rounded-2xl border border-border">
-                        <div className="flex-1 min-w-0">
-                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Color</label>
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className="h-3.5 w-3.5 rounded-full border border-black/10 shadow-sm flex-shrink-0"
-                              style={{ backgroundColor: obtenerColorHex(v.color) }}
-                            />
-                            <input
-                              type="text"
-                              placeholder="Negro, Rosa..."
-                              value={v.color}
-                              onChange={e => {
-                                const nuevas = [...variantes]
-                                nuevas[index].color = e.target.value
-                                setVariantes(nuevas)
-                              }}
-                              className="w-full bg-transparent text-sm font-bold text-foreground focus:outline-none"
-                            />
+                  <div className="space-y-4">
+                    {bloques.map((bloque, bi) => (
+                      <div key={bi} className="bg-card p-4 rounded-2xl border border-border space-y-3">
+                        <div className="flex gap-3 items-start">
+                          {/* Foto de este color */}
+                          <div className="flex-shrink-0">
+                            {bloque.imagen_url ? (
+                              <div className="relative h-20 w-20 rounded-xl overflow-hidden border border-border shadow-sm group">
+                                <img src={bloque.imagen_url} alt={bloque.color} className="h-full w-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => actualizarBloque(bi, { imagen_url: '' })}
+                                  className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold"
+                                >
+                                  Quitar
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="h-20 w-20 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary transition-all text-center px-1">
+                                <ImageIcon className="h-4 w-4 text-muted-foreground mb-0.5" />
+                                <span className="text-[9px] font-bold text-muted-foreground leading-tight">
+                                  {bloque.subiendoFoto ? 'Subiendo...' : 'Foto de este color'}
+                                </span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={bloque.subiendoFoto}
+                                  onChange={e => {
+                                    const file = e.target.files?.[0]
+                                    if (file) subirFotoColor(bi, file)
+                                  }}
+                                />
+                              </label>
+                            )}
+                          </div>
+
+                          {/* Nombre del color */}
+                          <div className="flex-1 min-w-0">
+                            <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Color</label>
+                            <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
+                              <span
+                                className="h-4 w-4 rounded-full border border-black/10 shadow-sm flex-shrink-0"
+                                style={{ backgroundColor: obtenerColorHex(bloque.color) }}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Negro, Rosa, Floreado..."
+                                value={bloque.color}
+                                onChange={e => actualizarBloque(bi, { color: e.target.value })}
+                                className="w-full bg-transparent text-sm font-bold text-foreground focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          {bloques.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setBloques(bloques.filter((_, i) => i !== bi))}
+                              className="text-muted-foreground hover:text-destructive p-1.5 mt-5"
+                              title="Quitar este color"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Tallas de este color */}
+                        <div className="pl-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                              Tallas de {bloque.color.trim() || 'este color'}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => actualizarBloque(bi, { tallas: [...bloque.tallas, { talla: '', cantidad: '' }] })}
+                              className="text-[11px] font-bold text-primary hover:opacity-80"
+                            >
+                              + Añadir talla
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {bloque.tallas.map((t, ti) => (
+                              <div key={ti} className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
+                                <select
+                                  value={t.talla}
+                                  onChange={e => {
+                                    const nuevas = [...bloque.tallas]
+                                    nuevas[ti].talla = e.target.value
+                                    actualizarBloque(bi, { tallas: nuevas })
+                                  }}
+                                  className="bg-transparent text-sm font-bold text-foreground focus:outline-none"
+                                >
+                                  <option value="">--</option>
+                                  <option value="XS">XS</option>
+                                  <option value="S">S</option>
+                                  <option value="M">M</option>
+                                  <option value="L">L</option>
+                                  <option value="XL">XL</option>
+                                  <option value="Única">Única</option>
+                                </select>
+                                <span className="text-muted-foreground text-xs">×</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  placeholder="0"
+                                  value={t.cantidad}
+                                  onChange={e => {
+                                    const nuevas = [...bloque.tallas]
+                                    nuevas[ti].cantidad = e.target.value
+                                    actualizarBloque(bi, { tallas: nuevas })
+                                  }}
+                                  className="w-12 bg-transparent text-base font-extrabold text-primary focus:outline-none"
+                                />
+                                {bloque.tallas.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => actualizarBloque(bi, { tallas: bloque.tallas.filter((_, i) => i !== ti) })}
+                                    className="text-muted-foreground hover:text-destructive text-xs"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         </div>
-                        <div className="w-20">
-                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Talla</label>
-                          <select
-                            value={v.talla}
-                            onChange={e => {
-                              const nuevas = [...variantes]
-                              nuevas[index].talla = e.target.value
-                              setVariantes(nuevas)
-                            }}
-                            className="w-full bg-transparent text-sm font-bold text-foreground focus:outline-none"
-                          >
-                            <option value="XS">XS</option>
-                            <option value="S">S</option>
-                            <option value="M">M</option>
-                            <option value="L">L</option>
-                            <option value="XL">XL</option>
-                            <option value="Única">Única</option>
-                          </select>
-                        </div>
-                        <div className="w-20">
-                          <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Cant.</label>
-                          <input
-                            type="number"
-                            min="1"
-                            placeholder="0"
-                            value={v.cantidad}
-                            onChange={e => {
-                              const nuevas = [...variantes]
-                              nuevas[index].cantidad = e.target.value
-                              setVariantes(nuevas)
-                            }}
-                            className="w-full bg-transparent text-base font-extrabold text-primary focus:outline-none"
-                          />
-                        </div>
-                        {variantes.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => setVariantes(variantes.filter((_, i) => i !== index))}
-                            className="text-muted-foreground hover:text-destructive p-1.5"
-                          >
-                            ✕
-                          </button>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -901,11 +1017,21 @@ export default function InventarioPage() {
                   <button
                     type="button"
                     onClick={() => setConfirmBajaOpen(true)}
-                    title={productoSeleccionado.activo === false ? 'Reactivar prenda' : 'Dar de baja'}
-                    className="h-8 w-8 rounded-full bg-secondary hover:bg-destructive hover:text-white flex items-center justify-center text-foreground transition-colors"
+                    title={productoSeleccionado.activo === false ? 'Reactivar prenda' : 'Dar de baja (ocultar sin borrar)'}
+                    className="h-8 w-8 rounded-full bg-secondary hover:bg-amber-500 hover:text-white flex items-center justify-center text-foreground transition-colors"
                   >
                     {productoSeleccionado.activo === false ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
                   </button>
+                  {!modoEdicion && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmEliminarOpen(true)}
+                      title="Eliminar prenda permanentemente"
+                      className="h-8 w-8 rounded-full bg-secondary hover:bg-destructive hover:text-white flex items-center justify-center text-foreground transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleCerrarDetalle}
@@ -1281,6 +1407,41 @@ export default function InventarioPage() {
                   className={`flex-1 rounded-xl py-2.5 text-xs font-extrabold text-white shadow-md transition-all disabled:opacity-50 ${productoSeleccionado.activo === false ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-destructive hover:opacity-90'}`}
                 >
                   {cambiandoEstado ? 'Procesando...' : productoSeleccionado.activo === false ? 'Reactivar' : 'Dar de Baja'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirmación Eliminar Permanentemente */}
+        {confirmEliminarOpen && productoSeleccionado && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
+            <div className="w-full max-w-sm rounded-3xl bg-background border border-border p-6 shadow-2xl text-center">
+              <div className="h-12 w-12 rounded-full mx-auto mb-4 flex items-center justify-center bg-destructive/10 text-destructive">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <h4 className="text-base font-extrabold text-foreground mb-1">¿Eliminar esta prenda?</h4>
+              <p className="text-xs text-muted-foreground mb-4">
+                "{productoSeleccionado.nombre}" se borrará de forma permanente, junto con su stock y su historial de movimientos. Esta acción no se puede deshacer.
+              </p>
+              <div className="text-[11px] text-muted-foreground bg-muted/50 border border-border rounded-xl p-3 mb-6 text-left">
+                Si la prenda ya tuvo ventas, el sistema no la va a eliminar para no perder el historial. En ese caso usa <span className="font-bold text-foreground">Dar de baja</span>, que la oculta del inventario.
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmEliminarOpen(false)}
+                  className="flex-1 rounded-xl bg-secondary py-2.5 text-xs font-bold text-foreground hover:opacity-90 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarEliminar}
+                  disabled={eliminandoProducto}
+                  className="flex-1 rounded-xl bg-destructive py-2.5 text-xs font-extrabold text-white shadow-md hover:opacity-90 transition-all disabled:opacity-50"
+                >
+                  {eliminandoProducto ? 'Eliminando...' : 'Eliminar'}
                 </button>
               </div>
             </div>

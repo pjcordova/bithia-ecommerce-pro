@@ -50,6 +50,37 @@ export async function cambiarEstadoProducto(id: string, activo: boolean) {
     }
 }
 
+export async function eliminarProducto(id: string) {
+    try {
+        const producto = await prisma.productos.findUnique({ where: { id } })
+        if (!producto) {
+            return { success: false, error: "La prenda ya no existe" }
+        }
+
+        // Una prenda con ventas es historial real del negocio: borrarla dejaría
+        // ventas huérfanas y descuadraría los reportes. Para esos casos existe
+        // "dar de baja", que la oculta sin perder el historial.
+        const ventas = await prisma.detalle_ventas.count({ where: { producto_id: id } })
+        if (ventas > 0) {
+            return {
+                success: false,
+                error: `No se puede eliminar: "${producto.nombre}" tiene ${ventas} venta${ventas > 1 ? 's' : ''} registrada${ventas > 1 ? 's' : ''}. Usa "Dar de baja" para ocultarla sin perder el historial.`,
+            }
+        }
+
+        // Sin ventas: se borra junto con su stock y su kardex
+        await prisma.movimientos_inventario.deleteMany({ where: { producto_id: id } })
+        await prisma.inventario_tallas.deleteMany({ where: { producto_id: id } })
+        await prisma.productos.delete({ where: { id } })
+
+        revalidatePath('/inventario')
+        return { success: true, message: `"${producto.nombre}" fue eliminada permanentemente` }
+    } catch (error) {
+        console.error("Error al eliminar producto:", error)
+        return { success: false, error: "No se pudo eliminar la prenda" }
+    }
+}
+
 export async function ajustarStockManual(data: {
     producto_id: string
     talla: string

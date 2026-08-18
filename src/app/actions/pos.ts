@@ -7,7 +7,10 @@ export async function obtenerDatosPOS() {
     try {
         const productosRaw = await prisma.productos.findMany({
             where: { activo: true },
-            include: { inventario_tallas: { where: { cantidad: { gt: 0 } } } },
+            include: {
+                inventario_tallas: { where: { cantidad: { gt: 0 } } },
+                producto_colores: true,
+            },
             orderBy: { nombre: 'asc' },
         })
 

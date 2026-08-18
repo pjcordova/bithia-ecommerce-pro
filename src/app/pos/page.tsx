@@ -61,24 +61,45 @@ export default function PosPage() {
     return Array.from(set).sort()
   }, [productos])
 
-  // Cruza cada talla en stock con su producto para armar las tarjetas de venta
+  // Una tarjeta por prenda, con sus colores agrupados y las tallas de cada color.
+  // La foto sale de producto_colores; si ese color no tiene, cae a la del producto.
   const itemsDisponibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
-    const items: { talla: any; producto: any }[] = []
-    productos.forEach(producto => {
-      if (filtroCategoria !== 'TODAS' && producto.categoria !== filtroCategoria) return
-      producto.inventario_tallas?.forEach((talla: any) => {
-        if (talla.cantidad > 0) items.push({ talla, producto })
+
+    const tarjetas = productos
+      .filter(producto => filtroCategoria === 'TODAS' || producto.categoria === filtroCategoria)
+      .map(producto => {
+        const porColor = new Map<string, any[]>()
+        producto.inventario_tallas?.forEach((fila: any) => {
+          if (fila.cantidad <= 0) return
+          const lista = porColor.get(fila.color) || []
+          lista.push(fila)
+          porColor.set(fila.color, lista)
+        })
+
+        const colores = Array.from(porColor.entries())
+          .map(([color, tallas]) => ({
+            color,
+            imagen_url: producto.producto_colores?.find((c: any) => c.color === color)?.imagen_url || producto.imagen_url || null,
+            tallas: tallas.sort((a, b) => a.talla.localeCompare(b.talla)),
+          }))
+          .sort((a, b) => a.color.localeCompare(b.color))
+
+        return { producto, colores }
       })
-    })
-    if (!q) return items
-    return items.filter(({ producto, talla }) =>
+      .filter(t => t.colores.length > 0)
+
+    if (!q) return tarjetas
+    return tarjetas.filter(({ producto, colores }) =>
       producto.nombre.toLowerCase().includes(q) ||
       producto.categoria.toLowerCase().includes(q) ||
-      talla.color?.toLowerCase().includes(q) ||
-      producto.codigo_barras?.toLowerCase().includes(q)
+      producto.codigo_barras?.toLowerCase().includes(q) ||
+      colores.some(c => c.color.toLowerCase().includes(q))
     )
   }, [productos, busqueda, filtroCategoria])
+
+  // Color elegido en cada tarjeta (por id de producto); por defecto el primero
+  const [colorElegido, setColorElegido] = useState<Record<string, string>>({})
 
   // Cada línea del carrito es una combinación única de producto + color + talla
   const cantidadEnCarrito = (productoId: string, talla: string, color: string) =>
@@ -362,46 +383,82 @@ export default function PosPage() {
                   No hay productos disponibles en stock.
                 </div>
               ) : (
-                itemsDisponibles.map(({ talla, producto }) => {
-                  const enCarrito = cantidadEnCarrito(producto.id, talla.talla, talla.color)
-                  const stockRestante = talla.cantidad - enCarrito
+                itemsDisponibles.map(({ producto, colores }) => {
+                  const colorActivo = colores.find(c => c.color === colorElegido[producto.id]) || colores[0]
+                  const stockDelColor = colorActivo.tallas.reduce(
+                    (s: number, t: any) => s + (t.cantidad - cantidadEnCarrito(producto.id, t.talla, t.color)), 0
+                  )
                   return (
                     <div
-                      key={talla.id}
-                      onClick={() => handleAgregar(producto, talla.talla, talla.color, talla.cantidad)}
-                      className="rounded-2xl bg-card border border-border hover:border-primary hover:shadow-lg active:scale-[0.98] transition-all cursor-pointer flex flex-col justify-between overflow-hidden"
+                      key={producto.id}
+                      className="rounded-2xl bg-card border border-border hover:shadow-lg transition-all flex flex-col justify-between overflow-hidden"
                     >
                       <div className="relative aspect-[4/5] w-full bg-muted/40 flex items-center justify-center p-3">
-                        {producto.imagen_url ? (
-                          <img src={producto.imagen_url} alt={producto.nombre} className="h-full w-full object-contain" />
+                        {colorActivo.imagen_url ? (
+                          <img src={colorActivo.imagen_url} alt={`${producto.nombre} ${colorActivo.color}`} className="h-full w-full object-contain" />
                         ) : (
                           <Package className="h-10 w-10 text-muted-foreground/40" />
                         )}
-                        <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-secondary/95 text-foreground shadow-sm">
-                          {talla.talla}
-                        </span>
-                        <span className={`absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-md shadow-sm ${stockRestante <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-card/95 text-muted-foreground'}`}>
-                          {stockRestante}
+                        {colores.length > 1 && (
+                          <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-secondary/95 text-foreground shadow-sm">
+                            {colores.length} colores
+                          </span>
+                        )}
+                        <span className={`absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-md shadow-sm ${stockDelColor <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-card/95 text-muted-foreground'}`}>
+                          {stockDelColor}
                         </span>
                       </div>
+
                       <div className="p-2.5 sm:p-3.5 flex flex-col justify-between flex-1">
                         <div>
                           <h3 className="text-[13px] sm:text-sm font-bold text-foreground line-clamp-2 leading-tight">{producto.nombre}</h3>
                           <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5">{producto.categoria}</p>
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <span
-                              className="h-3 w-3 rounded-full border border-black/10 shadow-sm flex-shrink-0"
-                              style={{ backgroundColor: obtenerColorHex(talla.color) }}
-                              title={talla.color}
-                            />
-                            <span className="text-[10px] text-muted-foreground truncate">{talla.color}</span>
+
+                          {/* Selector de color: cambia la foto y las tallas disponibles */}
+                          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                            {colores.map(c => (
+                              <button
+                                key={c.color}
+                                type="button"
+                                onClick={() => setColorElegido(prev => ({ ...prev, [producto.id]: c.color }))}
+                                title={c.color}
+                                className={`h-5 w-5 rounded-full border-2 shadow-sm transition-all ${
+                                  c.color === colorActivo.color ? 'border-primary scale-110' : 'border-black/10 hover:border-muted-foreground'
+                                }`}
+                                style={{ backgroundColor: obtenerColorHex(c.color) }}
+                              />
+                            ))}
+                            <span className="text-[10px] text-muted-foreground truncate ml-0.5">{colorActivo.color}</span>
+                          </div>
+
+                          {/* Tallas del color elegido */}
+                          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                            {colorActivo.tallas.map((t: any) => {
+                              const restante = t.cantidad - cantidadEnCarrito(producto.id, t.talla, t.color)
+                              const agotado = restante <= 0
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  disabled={agotado}
+                                  onClick={() => handleAgregar(producto, t.talla, t.color, t.cantidad)}
+                                  title={agotado ? 'Sin stock' : `Agregar ${colorActivo.color} talla ${t.talla}`}
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                                    agotado
+                                      ? 'border-border text-muted-foreground/40 line-through cursor-not-allowed'
+                                      : 'border-border text-foreground hover:border-primary hover:bg-primary/10 active:scale-95'
+                                  }`}
+                                >
+                                  {t.talla} <span className="font-normal opacity-70">({restante})</span>
+                                </button>
+                              )
+                            })}
                           </div>
                         </div>
+
                         <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border">
                           <span className="text-sm sm:text-base font-extrabold text-foreground">S/ {producto.precio_venta.toFixed(2)}</span>
-                          <span className="p-1.5 sm:p-2 rounded-lg bg-primary/10 text-primary">
-                            <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                          </span>
+                          <span className="text-[10px] text-muted-foreground">Toca una talla</span>
                         </div>
                       </div>
                     </div>

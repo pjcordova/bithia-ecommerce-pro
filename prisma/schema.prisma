@@ -124,6 +124,20 @@ model productos {
   detalle_ventas         detalle_ventas[]
   inventario_tallas      inventario_tallas[]
   movimientos_inventario movimientos_inventario[]
+  producto_colores       producto_colores[]
+}
+
+// Cada color de una prenda con su propia foto, para que el POS pueda mostrar
+// la imagen correcta al elegir un color. Si un color no tiene foto propia,
+// la interfaz cae a productos.imagen_url.
+model producto_colores {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  producto_id String    @db.Uuid
+  color       String
+  imagen_url  String?
+  productos   productos @relation(fields: [producto_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([producto_id, color])
 }
 
 model ventas {

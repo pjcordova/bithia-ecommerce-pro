@@ -22,12 +22,41 @@ export default function RecepcionMercaderiaPage() {
     const [imagenUrl, setImagenUrl] = useState('');
     const [uploadingImage, setUploadingImage] = useState(false);
 
-    // Matriz de Ingreso: cada fila es una combinación color + talla con su propio stock
-    const [tallas, setTallas] = useState([
-        { talla: 'S', color: '', cantidad: 1 },
-        { talla: 'M', color: '', cantidad: 1 },
-        { talla: 'L', color: '', cantidad: 1 },
+    // Ingreso agrupado por color: cada color tiene su foto y sus tallas con cantidad
+    type BloqueColor = {
+        color: string
+        imagen_url: string
+        subiendoFoto: boolean
+        tallas: { talla: string; cantidad: number }[]
+    }
+    const [bloques, setBloques] = useState<BloqueColor[]>([
+        { color: '', imagen_url: '', subiendoFoto: false, tallas: [{ talla: 'M', cantidad: 1 }] },
     ]);
+
+    const actualizarBloque = (i: number, cambios: Partial<BloqueColor>) => {
+        setBloques(prev => prev.map((b, idx) => idx === i ? { ...b, ...cambios } : b));
+    };
+
+    const subirFotoColor = async (indiceBloque: number, file: File) => {
+        actualizarBloque(indiceBloque, { subiendoFoto: true });
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', 'bithia_preset');
+        try {
+            const res = await fetch(`https://api.cloudinary.com/v1_1/rrh7xuqq/image/upload`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.secure_url) {
+                actualizarBloque(indiceBloque, { imagen_url: data.secure_url, subiendoFoto: false });
+                toast.success('Foto del color subida');
+            } else {
+                actualizarBloque(indiceBloque, { subiendoFoto: false });
+                toast.error(data.error?.message || 'Error al subir la foto');
+            }
+        } catch {
+            actualizarBloque(indiceBloque, { subiendoFoto: false });
+            toast.error('Error de conexión al subir la foto');
+        }
+    };
 
     // Cálculos Financieros
     const costo = parseFloat(costoInversion) || 0;
@@ -67,10 +96,6 @@ export default function RecepcionMercaderiaPage() {
             // ⭐ ESTO GARANTIZA QUE EL BOTÓN Y LA PANTALLA SE DESBLOQUEEN SIEMPRE
             setLoading(false);
         }
-    };
-
-    const agregarTalla = () => {
-        setTallas([...tallas, { talla: '', color: '', cantidad: 1 }]);
     };
 
     // Cuando la cámara no logra leer el código, el sistema genera uno propio al guardar
@@ -120,14 +145,22 @@ export default function RecepcionMercaderiaPage() {
             return;
         }
 
-        const filasValidas = tallas.filter(t => t.talla.trim() !== '' && t.color.trim() !== '');
+        // Aplanar los bloques a filas color+talla, descartando lo incompleto
+        const bloquesValidos = bloques.filter(b => b.color.trim() !== '');
+        const filasValidas = bloquesValidos.flatMap(b =>
+            b.tallas
+                .filter(t => t.talla.trim() !== '' && t.cantidad > 0)
+                .map(t => ({ talla: t.talla.trim(), color: b.color.trim(), cantidad: t.cantidad }))
+        );
         if (filasValidas.length === 0) {
-            toast.error('Agrega al menos una fila con color y talla');
+            toast.error('Agrega al menos un color con su talla y cantidad');
             return;
         }
 
         // El color del producto resume los colores cargados, para mostrarlo en listados
-        const coloresUnicos = Array.from(new Set(filasValidas.map(t => t.color.trim())));
+        const coloresUnicos = Array.from(new Set(filasValidas.map(t => t.color)));
+        // La primera foto de color sirve de imagen general de la prenda
+        const primeraFoto = bloquesValidos.find(b => b.imagen_url)?.imagen_url;
 
         setLoading(true);
         const res = await registrarRecepcionMercaderia({
@@ -137,8 +170,11 @@ export default function RecepcionMercaderiaPage() {
             color_principal: coloresUnicos.join(', '),
             costo_inversion: parseFloat(costoInversion),
             precio_venta: parseFloat(precioVenta),
-            imagen_url: imagenUrl || undefined,
-            tallas: filasValidas.map(t => ({ ...t, color: t.color.trim() })),
+            imagen_url: imagenUrl || primeraFoto || undefined,
+            tallas: filasValidas,
+            fotosPorColor: bloquesValidos
+                .filter(b => b.imagen_url)
+                .map(b => ({ color: b.color.trim(), imagen_url: b.imagen_url })),
             usuarioNombre: user?.name,
             usuario_id: user?.id,
         });
@@ -149,6 +185,7 @@ export default function RecepcionMercaderiaPage() {
             setCodigoEscaneado(null);
             setIsProductoNuevo(false);
             setImagenUrl('');
+            setBloques([{ color: '', imagen_url: '', subiendoFoto: false, tallas: [{ talla: 'M', cantidad: 1 }] }]);
         } else {
             toast.error(res.error);
         }
@@ -299,85 +336,150 @@ export default function RecepcionMercaderiaPage() {
                                 </div>
                             </div>
 
-                            {/* Bloque 3: Matriz Color + Talla */}
+                            {/* Bloque 3: Ingreso agrupado por color */}
                             <div>
                                 <div className="flex justify-between items-center mb-1">
-                                    <label className="text-sm font-bold text-foreground">Matriz de Ingreso (Color + Talla)</label>
+                                    <label className="text-sm font-bold text-foreground">Colores Recibidos</label>
                                     <button
                                         type="button"
-                                        onClick={agregarTalla}
+                                        onClick={() => setBloques([...bloques, { color: '', imagen_url: '', subiendoFoto: false, tallas: [{ talla: 'M', cantidad: 1 }] }])}
                                         className="flex items-center gap-1 text-xs font-bold text-primary hover:opacity-80"
                                     >
-                                        <PlusCircle className="h-4 w-4" /> Añadir Fila
+                                        <PlusCircle className="h-4 w-4" /> Añadir Color
                                     </button>
                                 </div>
                                 <p className="text-xs text-muted-foreground mb-3">
-                                    Una fila por cada combinación. Ej: Negro/M/4 y Rosado/S/5 son dos filas distintas.
+                                    Cada color con su foto y las tallas que recibiste de ese color.
                                 </p>
 
-                                <div className="space-y-3">
-                                    {tallas.map((t, index) => (
-                                        <div key={index} className="flex gap-3 items-center bg-background p-3 rounded-xl border border-border">
-                                            <div className="flex-1 min-w-0">
-                                                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Color</label>
-                                                <div className="flex items-center gap-2">
-                                                    <span
-                                                        className="h-3.5 w-3.5 rounded-full border border-black/10 shadow-sm flex-shrink-0"
-                                                        style={{ backgroundColor: obtenerColorHex(t.color) }}
-                                                    />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Negro, Rosa..."
-                                                        value={t.color}
-                                                        onChange={(e) => {
-                                                            const newTallas = [...tallas];
-                                                            newTallas[index].color = e.target.value;
-                                                            setTallas(newTallas);
-                                                        }}
-                                                        className="w-full bg-transparent text-sm font-bold focus:outline-none"
-                                                        required
-                                                    />
+                                <div className="space-y-4">
+                                    {bloques.map((bloque, bi) => (
+                                        <div key={bi} className="bg-background p-4 rounded-2xl border border-border space-y-3">
+                                            <div className="flex gap-3 items-start">
+                                                {/* Foto del color */}
+                                                <div className="flex-shrink-0">
+                                                    {bloque.imagen_url ? (
+                                                        <div className="relative h-20 w-20 rounded-xl overflow-hidden border border-border shadow-sm group">
+                                                            <img src={bloque.imagen_url} alt={bloque.color} className="h-full w-full object-cover" />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => actualizarBloque(bi, { imagen_url: '' })}
+                                                                className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold"
+                                                            >
+                                                                Quitar
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <label className="h-20 w-20 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary transition-all text-center px-1">
+                                                            <ImageIcon className="h-4 w-4 text-muted-foreground mb-0.5" />
+                                                            <span className="text-[9px] font-bold text-muted-foreground leading-tight">
+                                                                {bloque.subiendoFoto ? 'Subiendo...' : 'Foto de este color'}
+                                                            </span>
+                                                            <input
+                                                                type="file"
+                                                                accept="image/*"
+                                                                capture="environment"
+                                                                className="hidden"
+                                                                disabled={bloque.subiendoFoto}
+                                                                onChange={e => {
+                                                                    const file = e.target.files?.[0];
+                                                                    if (file) subirFotoColor(bi, file);
+                                                                }}
+                                                            />
+                                                        </label>
+                                                    )}
+                                                </div>
+
+                                                {/* Nombre del color */}
+                                                <div className="flex-1 min-w-0">
+                                                    <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Color</label>
+                                                    <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+                                                        <span
+                                                            className="h-4 w-4 rounded-full border border-black/10 shadow-sm flex-shrink-0"
+                                                            style={{ backgroundColor: obtenerColorHex(bloque.color) }}
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Negro, Rosa, Floreado..."
+                                                            value={bloque.color}
+                                                            onChange={e => actualizarBloque(bi, { color: e.target.value })}
+                                                            className="w-full bg-transparent text-sm font-bold text-foreground focus:outline-none"
+                                                            required
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {bloques.length > 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setBloques(bloques.filter((_, i) => i !== bi))}
+                                                        className="text-muted-foreground hover:text-destructive p-1.5 mt-5"
+                                                        title="Quitar este color"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Tallas de este color */}
+                                            <div className="pl-1">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                                                        Tallas de {bloque.color.trim() || 'este color'}
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => actualizarBloque(bi, { tallas: [...bloque.tallas, { talla: '', cantidad: 1 }] })}
+                                                        className="text-[11px] font-bold text-primary hover:opacity-80"
+                                                    >
+                                                        + Añadir talla
+                                                    </button>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {bloque.tallas.map((t, ti) => (
+                                                        <div key={ti} className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+                                                            <select
+                                                                value={t.talla}
+                                                                onChange={e => {
+                                                                    const nuevas = [...bloque.tallas];
+                                                                    nuevas[ti].talla = e.target.value;
+                                                                    actualizarBloque(bi, { tallas: nuevas });
+                                                                }}
+                                                                className="bg-transparent text-sm font-bold text-foreground focus:outline-none"
+                                                            >
+                                                                <option value="">--</option>
+                                                                <option value="XS">XS</option>
+                                                                <option value="S">S</option>
+                                                                <option value="M">M</option>
+                                                                <option value="L">L</option>
+                                                                <option value="XL">XL</option>
+                                                                <option value="Única">Única</option>
+                                                            </select>
+                                                            <span className="text-muted-foreground text-xs">×</span>
+                                                            <input
+                                                                type="number"
+                                                                min="1"
+                                                                value={t.cantidad}
+                                                                onChange={e => {
+                                                                    const nuevas = [...bloque.tallas];
+                                                                    nuevas[ti].cantidad = parseInt(e.target.value) || 0;
+                                                                    actualizarBloque(bi, { tallas: nuevas });
+                                                                }}
+                                                                className="w-12 bg-transparent text-base font-extrabold text-primary focus:outline-none"
+                                                            />
+                                                            {bloque.tallas.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => actualizarBloque(bi, { tallas: bloque.tallas.filter((_, i) => i !== ti) })}
+                                                                    className="text-muted-foreground hover:text-destructive text-xs"
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </div>
-                                            <div className="w-px h-8 bg-border"></div>
-                                            <div className="w-24">
-                                                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Talla</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="S, M, L..."
-                                                    value={t.talla}
-                                                    onChange={(e) => {
-                                                        const newTallas = [...tallas];
-                                                        newTallas[index].talla = e.target.value;
-                                                        setTallas(newTallas);
-                                                    }}
-                                                    className="w-full bg-transparent text-sm font-bold focus:outline-none"
-                                                    required
-                                                />
-                                            </div>
-                                            <div className="w-px h-8 bg-border"></div>
-                                            <div className="w-24">
-                                                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Cantidad</label>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    value={t.cantidad}
-                                                    onChange={(e) => {
-                                                        const newTallas = [...tallas];
-                                                        newTallas[index].cantidad = parseInt(e.target.value) || 0;
-                                                        setTallas(newTallas);
-                                                    }}
-                                                    className="w-full bg-transparent text-lg font-extrabold text-primary focus:outline-none"
-                                                    required
-                                                />
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setTallas(tallas.filter((_, i) => i !== index))}
-                                                className="text-muted-foreground hover:text-destructive p-2"
-                                            >
-                                                ✕
-                                            </button>
                                         </div>
                                     ))}
                                 </div>
