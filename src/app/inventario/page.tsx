@@ -447,6 +447,9 @@ export default function InventarioPage() {
       return
     }
 
+    // Escapa comillas dobles duplicándolas, para que un nombre como Vestido "Luna" no rompa las columnas
+    const csvField = (value: string) => `"${String(value).replace(/"/g, '""')}"`
+
     const headers = ['Nombre', 'Código / EAN', 'Lote', 'Categoría', 'Precio Venta (S/.)', 'Costo Inversión (S/.)', 'Margen (S/.)', 'Stock Total', 'Desglose Color y Talla']
     const rows = productosFiltrados.map(item => {
       const totalStock = item.inventario_tallas?.reduce((acc: number, t: any) => acc + t.cantidad, 0) || 0
@@ -454,26 +457,29 @@ export default function InventarioPage() {
       const margen = Number(item.precio_venta || 0) - Number(item.costo_inversion || 0)
 
       return [
-        `"${item.nombre}"`,
-        `"${item.codigo_barras || 'N/A'}"`,
-        `"${item.lote || 'N/A'}"`,
-        `"${item.categoria}"`,
+        csvField(item.nombre),
+        csvField(item.codigo_barras || 'N/A'),
+        csvField(item.lote || 'N/A'),
+        csvField(item.categoria),
         Number(item.precio_venta || 0).toFixed(2),
         Number(item.costo_inversion || 0).toFixed(2),
         margen.toFixed(2),
         totalStock,
-        `"${tallasString}"`
+        csvField(tallasString)
       ]
     })
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n")
-    const encodedUri = encodeURI(csvContent)
+    const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n")
+    // BOM al inicio: sin esto, Excel en Windows interpreta el UTF-8 como ANSI y las tildes/ñ salen corruptas
+    const blob = new Blob(["﻿" + csvContent], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
-    link.setAttribute("href", encodedUri)
+    link.setAttribute("href", url)
     link.setAttribute("download", `inventario_bithia_${new Date().toISOString().split('T')[0]}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    URL.revokeObjectURL(url)
     toast.success('Reporte de inventario exportado con éxito')
   }
 

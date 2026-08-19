@@ -2,7 +2,17 @@
 
 import { prisma } from '@/lib/prisma'
 import { hashPassword, verifyPassword } from '@/lib/password'
+import { crearSesion, obtenerUserIdDeSesion, eliminarSesion } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
+
+function perfilAUsuario(perfil: { id: string; nombre: string; email: string; rol: string }) {
+    return {
+        id: perfil.id,
+        name: perfil.nombre,
+        email: perfil.email,
+        role: perfil.rol === 'admin' ? 'ADMIN' as const : 'USER' as const,
+    }
+}
 
 export async function loginConCredenciales(email: string, password: string) {
     try {
@@ -18,19 +28,40 @@ export async function loginConCredenciales(email: string, password: string) {
             return { success: false, error: 'Correo o contraseña incorrectos' }
         }
 
+        await crearSesion(perfil.id)
+
         return {
             success: true,
-            user: {
-                id: perfil.id,
-                name: perfil.nombre,
-                email: perfil.email,
-                role: perfil.rol === 'admin' ? 'ADMIN' as const : 'USER' as const,
-            },
+            user: perfilAUsuario(perfil),
         }
     } catch (error) {
         console.error("Error al iniciar sesión:", error)
         return { success: false, error: 'Ocurrió un error inesperado al iniciar sesión' }
     }
+}
+
+export async function obtenerSesionActual() {
+    try {
+        const userId = await obtenerUserIdDeSesion()
+        if (!userId) {
+            return { success: false as const }
+        }
+
+        const perfil = await prisma.perfiles.findUnique({ where: { id: userId } })
+        if (!perfil) {
+            return { success: false as const }
+        }
+
+        return { success: true as const, user: perfilAUsuario(perfil) }
+    } catch (error) {
+        console.error("Error al recuperar la sesión:", error)
+        return { success: false as const }
+    }
+}
+
+export async function cerrarSesionAction() {
+    await eliminarSesion()
+    return { success: true }
 }
 
 export async function obtenerPersonal() {

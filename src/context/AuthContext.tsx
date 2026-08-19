@@ -1,8 +1,8 @@
 "use client";
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { loginConCredenciales } from '@/app/actions/auth';
+import { loginConCredenciales, obtenerSesionActual, cerrarSesionAction } from '@/app/actions/auth';
 
 type User = {
   id: string;
@@ -22,8 +22,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Empieza en true: mientras no sepamos si hay una cookie de sesión válida,
+  // no podemos decidir si mostrar el contenido o mandar al login.
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
+
+  useEffect(() => {
+    let activo = true;
+    obtenerSesionActual().then(res => {
+      if (!activo) return;
+      if (res.success) setUser(res.user);
+      setLoading(false);
+    });
+    return () => { activo = false };
+  }, []);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
@@ -48,6 +60,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     setUser(null);
+    cerrarSesionAction();
     router.push('/login');
     toast.info('Sesión cerrada');
   };

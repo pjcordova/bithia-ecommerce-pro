@@ -20,18 +20,28 @@ const PAGE_TITLES: Record<string, string> = {
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // 1. Cambiamos isAuthenticated por user, que es lo que realmente exporta nuestro AuthContext
-  const { user, logout } = useAuth()
+  const { user, loading, logout } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
 
   // 2. Envolvemos la redirección en un useEffect para que espere a que React termine de renderizar
   useEffect(() => {
-    if (!user) {
+    if (!loading && !user) {
       router.replace('/login')
     }
-  }, [user, router])
+  }, [loading, user, router])
 
-  // 3. Mientras el router hace su trabajo, devolvemos null para no mostrar parpadeos extraños
+  // 3. Mientras se verifica la sesión (ej. justo después de una recarga), mostramos un loader
+  // en vez de una pantalla en blanco. Recién si ya sabemos que no hay sesión, no mostramos nada
+  // porque el useEffect de arriba ya está redirigiendo a /login.
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bithia-bg">
+        <div className="h-8 w-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
+      </div>
+    )
+  }
+
   if (!user) {
     return null
   }
@@ -44,7 +54,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       <aside className={`fixed inset-y-0 left-0 z-50 w-[272px] transform bg-white shadow-2xl shadow-black/5 transition-transform duration-300 ease-out lg:static lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <Sidebar onClose={() => setSidebarOpen(false)} />
       </aside>
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
         <header className="flex h-16 items-center justify-between border-b border-border/60 bg-white/80 px-4 backdrop-blur-md lg:px-8">
           <div className="flex items-center gap-4">
             <button className="rounded-xl p-2.5 hover:bg-muted active:scale-95 transition-all lg:hidden" onClick={() => setSidebarOpen(true)}>
