@@ -4,7 +4,7 @@ import { Layout } from '@/components/Layout'
 import { useAuth } from '@/context/AuthContext'
 import { obtenerDatosPOS, confirmarVentaPOS } from '@/app/actions/pos'
 import { obtenerColorHex } from '@/lib/colores'
-import { ShoppingCart, Search, Plus, Minus, CheckCircle2, Trash2, Package, X, UserPlus } from 'lucide-react'
+import { ShoppingCart, Search, Plus, Minus, CheckCircle2, Trash2, Package, X, UserPlus, Tag, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 
 const METODOS_PAGO = [
@@ -16,7 +16,10 @@ const METODOS_PAGO = [
 ] as const
 
 type MetodoPago = typeof METODOS_PAGO[number]['value']
-type CartItem = { producto: any; talla: string; color: string; cantidad: number }
+// imagenColor guarda la foto del color elegido, para que el resumen muestre
+// exactamente la prenda que se está vendiendo y no la foto general.
+// precioUnitario arranca en el precio de catálogo y se puede rebajar por prenda
+type CartItem = { producto: any; talla: string; color: string; cantidad: number; imagenColor: string | null; precioUnitario: number }
 
 export default function PosPage() {
   const { user } = useAuth()
@@ -33,6 +36,7 @@ export default function PosPage() {
   const [clienteId, setClienteId] = useState('')
   const [metodoPago, setMetodoPago] = useState<MetodoPago>('efectivo')
   const [canalVenta, setCanalVenta] = useState<'stand' | 'instagram'>('stand')
+  const [descuento, setDescuento] = useState('')
 
   // Registro rápido de cliente nuevo (nombre + celular) para conectar la venta con el CRM
   const [modoNuevoCliente, setModoNuevoCliente] = useState(false)
@@ -105,12 +109,21 @@ export default function PosPage() {
   const cantidadEnCarrito = (productoId: string, talla: string, color: string) =>
     cart.find(c => c.producto.id === productoId && c.talla === talla && c.color === color)?.cantidad || 0
 
-  const addToCart = (producto: any, talla: string, color: string) => {
+  const addToCart = (producto: any, talla: string, color: string, imagenColor: string | null) => {
     setCart(prev => {
       const existe = prev.find(c => c.producto.id === producto.id && c.talla === talla && c.color === color)
       if (existe) return prev.map(c => c.producto.id === producto.id && c.talla === talla && c.color === color ? { ...c, cantidad: c.cantidad + 1 } : c)
-      return [...prev, { producto, talla, color, cantidad: 1 }]
+      return [...prev, { producto, talla, color, cantidad: 1, imagenColor, precioUnitario: producto.precio_venta }]
     })
+  }
+
+  // Rebaja el precio de una línea puntual del carrito (no puede ser negativo)
+  const cambiarPrecioLinea = (productoId: string, talla: string, color: string, nuevoPrecio: number) => {
+    setCart(prev => prev.map(c =>
+      c.producto.id === productoId && c.talla === talla && c.color === color
+        ? { ...c, precioUnitario: Math.max(0, nuevoPrecio) }
+        : c
+    ))
   }
 
   const updateCartQty = (productoId: string, talla: string, color: string, qty: number) => {
@@ -125,12 +138,12 @@ export default function PosPage() {
     setCart(prev => prev.filter(c => !(c.producto.id === productoId && c.talla === talla && c.color === color)))
   }
 
-  const handleAgregar = (producto: any, talla: string, color: string, stockDisponible: number) => {
+  const handleAgregar = (producto: any, talla: string, color: string, stockDisponible: number, imagenColor: string | null) => {
     if (cantidadEnCarrito(producto.id, talla, color) >= stockDisponible) {
       toast.error('Stock máximo alcanzado')
       return
     }
-    addToCart(producto, talla, color)
+    addToCart(producto, talla, color, imagenColor)
   }
 
   const handleCambiarCantidad = (productoId: string, talla: string, color: string, delta: number, stockDisponible: number) => {
@@ -142,7 +155,17 @@ export default function PosPage() {
     updateCartQty(productoId, talla, color, nueva)
   }
 
-  const totalCarrito = cart.reduce((sum, item) => sum + item.producto.precio_venta * item.cantidad, 0)
+  // Subtotal con los precios ya rebajados por prenda
+  const subtotalCarrito = cart.reduce((sum, item) => sum + item.precioUnitario * item.cantidad, 0)
+  // Cuánto se rebajó prenda por prenda (respecto al precio de catálogo)
+  const rebajaPorPrenda = cart.reduce((sum, item) => sum + (item.producto.precio_venta - item.precioUnitario) * item.cantidad, 0)
+  // La rebaja final no puede pasar del subtotal, para no dejar un total negativo
+  const descuentoAplicado = Math.min(Math.max(0, parseFloat(descuento) || 0), subtotalCarrito)
+  const totalCarrito = subtotalCarrito - descuentoAplicado
+
+  // Ganancia real: precios ya rebajados menos costo, menos la rebaja final
+  const margenBruto = cart.reduce((sum, item) => sum + (item.precioUnitario - item.producto.costo_inversion) * item.cantidad, 0)
+  const utilidadFinal = margenBruto - descuentoAplicado
   const unidadesCarrito = cart.reduce((sum, item) => sum + item.cantidad, 0)
 
   const handleCompletarVenta = async () => {
@@ -162,7 +185,8 @@ export default function PosPage() {
         talla: c.talla,
         color: c.color,
         cantidad: c.cantidad,
-        precio_venta_unitario: c.producto.precio_venta,
+        precio_venta_unitario: c.precioUnitario,
+        precio_lista: c.producto.precio_venta,
         costo_inversion_unitario: c.producto.costo_inversion,
       })),
       canal_venta: canalVenta,
@@ -172,6 +196,7 @@ export default function PosPage() {
         ? { nombre: nuevoClienteNombre.trim(), whatsapp: nuevoClienteWhatsapp.trim() }
         : undefined,
       usuario_id: user.id,
+      descuento: descuentoAplicado,
     })
     setProcesandoVenta(false)
 
@@ -182,6 +207,7 @@ export default function PosPage() {
       setModoNuevoCliente(false)
       setNuevoClienteNombre('')
       setNuevoClienteWhatsapp('')
+      setDescuento('')
       setCartSheetOpen(false)
       cargarDatos()
     } else {
@@ -275,39 +301,89 @@ export default function PosPage() {
         cart.map(item => {
           const invItem = item.producto.inventario_tallas?.find((t: any) => t.talla === item.talla && t.color === item.color)
           const stockDisponible = invItem?.cantidad || 0
+          const subtotal = item.precioUnitario * item.cantidad
+          const rebajado = item.precioUnitario < item.producto.precio_venta
+          // La foto del color elegido; si ese color no tiene, la general de la prenda
+          const foto = item.imagenColor || item.producto.imagen_url
           return (
-            <div key={`${item.producto.id}-${item.talla}-${item.color}`} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-muted/40 border border-border/50">
-              <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                {item.producto.imagen_url ? (
-                  <img src={item.producto.imagen_url} alt={item.producto.nombre} className="h-11 w-11 rounded-lg object-cover border border-border flex-shrink-0" />
+            <div key={`${item.producto.id}-${item.talla}-${item.color}`} className="p-3 rounded-xl bg-muted/40 border border-border/50">
+              {/* Fila 1: foto + datos de la prenda + quitar */}
+              <div className="flex items-start gap-3">
+                {foto ? (
+                  <img src={foto} alt={`${item.producto.nombre} ${item.color}`} className="h-14 w-14 rounded-lg object-cover border border-border flex-shrink-0" />
                 ) : (
-                  <div className="h-11 w-11 rounded-lg bg-secondary/60 flex items-center justify-center flex-shrink-0">
-                    <Package className="h-4 w-4 text-muted-foreground" />
+                  <div className="h-14 w-14 rounded-lg bg-secondary/60 flex items-center justify-center flex-shrink-0">
+                    <Package className="h-5 w-5 text-muted-foreground" />
                   </div>
                 )}
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-foreground truncate">{item.producto.nombre}</p>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full border border-black/10 flex-shrink-0"
-                      style={{ backgroundColor: obtenerColorHex(item.color) }}
-                    />
-                    {item.color} · Talla {item.talla}
-                  </p>
-                  <p className="text-xs text-muted-foreground">S/ {item.producto.precio_venta.toFixed(2)} c/u</p>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-foreground leading-snug line-clamp-2">{item.producto.nombre}</p>
+                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-foreground bg-background border border-border rounded-md px-1.5 py-0.5">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full border border-black/10 flex-shrink-0"
+                        style={{ backgroundColor: obtenerColorHex(item.color) }}
+                      />
+                      {item.color}
+                    </span>
+                    <span className="text-[11px] font-bold text-foreground bg-background border border-border rounded-md px-1.5 py-0.5">
+                      Talla {item.talla}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button onClick={() => handleCambiarCantidad(item.producto.id, item.talla, item.color, -1, stockDisponible)} className="p-2 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all">
-                  <Minus className="h-3.5 w-3.5" />
-                </button>
-                <span className="text-xs font-bold text-foreground w-4 text-center">{item.cantidad}</span>
-                <button onClick={() => handleCambiarCantidad(item.producto.id, item.talla, item.color, 1, stockDisponible)} className="p-2 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all">
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-                <button onClick={() => removeFromCart(item.producto.id, item.talla, item.color)} className="p-2 rounded-lg text-destructive hover:bg-red-50 ml-1 active:scale-95 transition-all">
+
+                <button
+                  onClick={() => removeFromCart(item.producto.id, item.talla, item.color)}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-red-50 active:scale-95 transition-all flex-shrink-0"
+                  title="Quitar del carrito"
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
+              </div>
+
+              {/* Fila 2: cantidad a la izquierda, subtotal a la derecha */}
+              <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-border/60">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleCambiarCantidad(item.producto.id, item.talla, item.color, -1, stockDisponible)}
+                    className="p-1.5 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <span className="text-sm font-bold text-foreground w-7 text-center">{item.cantidad}</span>
+                  <button
+                    onClick={() => handleCambiarCantidad(item.producto.id, item.talla, item.color, 1, stockDisponible)}
+                    className="p-1.5 rounded-lg bg-background border border-border text-foreground hover:bg-muted active:scale-95 transition-all"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                  {/* Precio editable: acá se rebaja esta prenda en particular */}
+                  <div className="flex items-center gap-1 ml-1.5">
+                    <span className="text-[11px] text-muted-foreground">× S/</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={item.precioUnitario}
+                      onChange={e => cambiarPrecioLinea(item.producto.id, item.talla, item.color, parseFloat(e.target.value) || 0)}
+                      title="Puedes rebajar el precio de esta prenda"
+                      className={`w-14 rounded-md border px-1 py-0.5 text-[11px] font-bold text-right focus:outline-none focus:ring-1 focus:ring-primary ${
+                        rebajado ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-border bg-background text-foreground'
+                      }`}
+                    />
+                  </div>
+                </div>
+                <div className="text-right">
+                  {rebajado && (
+                    <p className="text-[10px] text-muted-foreground line-through leading-none">
+                      S/ {(item.producto.precio_venta * item.cantidad).toFixed(2)}
+                    </p>
+                  )}
+                  <span className={`text-sm font-extrabold ${rebajado ? 'text-amber-700' : 'text-foreground'}`}>
+                    S/ {subtotal.toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
           )
@@ -318,10 +394,62 @@ export default function PosPage() {
 
   const renderBotonCobrar = () => (
     <div className="mt-6 pt-4 border-t border-border">
+      {/* Rebaja negociada con la clienta, sobre el total */}
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+          <Tag className="h-3.5 w-3.5" /> Rebaja
+        </label>
+        <div className="relative w-28">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">S/</span>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            placeholder="0.00"
+            value={descuento}
+            onChange={e => setDescuento(e.target.value)}
+            disabled={cartVacio}
+            className="w-full rounded-xl border border-border bg-background pl-8 pr-2 py-2 text-sm font-bold text-foreground text-right focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+          />
+        </div>
+      </div>
+
+      {(descuentoAplicado > 0 || rebajaPorPrenda > 0) && (
+        <div className="space-y-1 mb-3 text-xs">
+          {rebajaPorPrenda > 0 && (
+            <div className="flex items-center justify-between text-amber-700 font-semibold">
+              <span>Rebajas por prenda</span>
+              <span>− S/ {rebajaPorPrenda.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>Subtotal</span>
+            <span>S/ {subtotalCarrito.toFixed(2)}</span>
+          </div>
+          {descuentoAplicado > 0 && (
+            <div className="flex items-center justify-between text-destructive font-semibold">
+              <span>Rebaja al total</span>
+              <span>− S/ {descuentoAplicado.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Si la rebaja se come la ganancia, se avisa pero se puede cobrar igual */}
+      {!cartVacio && utilidadFinal < 0 && (
+        <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-300 p-2.5 mb-3">
+          <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-[11px] text-amber-800 leading-snug">
+            Con esta rebaja <span className="font-bold">pierdes S/ {Math.abs(utilidadFinal).toFixed(2)}</span>: estás cobrando por debajo de lo que te costó la mercadería.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-semibold text-muted-foreground">Total a Pagar</span>
         <span className="text-2xl font-extrabold text-foreground">S/ {totalCarrito.toFixed(2)}</span>
       </div>
+
       <button
         onClick={handleCompletarVenta}
         disabled={cartVacio || procesandoVenta}
@@ -441,7 +569,7 @@ export default function PosPage() {
                                   key={t.id}
                                   type="button"
                                   disabled={agotado}
-                                  onClick={() => handleAgregar(producto, t.talla, t.color, t.cantidad)}
+                                  onClick={() => handleAgregar(producto, t.talla, t.color, t.cantidad, colorActivo.imagen_url)}
                                   title={agotado ? 'Sin stock' : `Agregar ${colorActivo.color} talla ${t.talla}`}
                                   className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition-all ${
                                     agotado
@@ -475,7 +603,7 @@ export default function PosPage() {
                 <div className="p-2 rounded-xl bg-primary/10 text-primary">
                   <ShoppingCart className="h-5 w-5" />
                 </div>
-                <h3 className="text-base font-bold text-foreground">Resumen de Venta</h3>
+                <h3 className="text-base font-bold text-foreground">Resumen de Venta{unidadesCarrito > 0 && <span className="ml-1.5 text-xs font-semibold text-muted-foreground">({unidadesCarrito})</span>}</h3>
               </div>
               {renderListaCarrito()}
               {renderClienteYPago()}
@@ -522,7 +650,7 @@ export default function PosPage() {
                 <div className="p-2 rounded-xl bg-primary/10 text-primary">
                   <ShoppingCart className="h-5 w-5" />
                 </div>
-                <h3 className="text-base font-bold text-foreground">Resumen de Venta</h3>
+                <h3 className="text-base font-bold text-foreground">Resumen de Venta{unidadesCarrito > 0 && <span className="ml-1.5 text-xs font-semibold text-muted-foreground">({unidadesCarrito})</span>}</h3>
               </div>
               <button
                 type="button"

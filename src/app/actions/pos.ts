@@ -33,18 +33,24 @@ export async function obtenerDatosPOS() {
 }
 
 export async function confirmarVentaPOS(data: {
-    items: { producto_id: string; talla: string; color: string; cantidad: number; precio_venta_unitario: number; costo_inversion_unitario: number }[]
+    // precio_venta_unitario = lo que se cobra por unidad (ya con rebaja de esa prenda)
+    // precio_lista = precio de catálogo, para saber cuánto se rebajó
+    items: { producto_id: string; talla: string; color: string; cantidad: number; precio_venta_unitario: number; precio_lista?: number; costo_inversion_unitario: number }[]
     canal_venta: 'stand' | 'instagram'
     metodo_pago: 'efectivo' | 'yape' | 'plin' | 'transferencia' | 'tarjeta'
     cliente_id?: string
     cliente_nuevo?: { nombre: string; whatsapp: string }
     usuario_id?: string
+    // Rebaja en soles sobre el total de la venta (lo que se negocia en el mostrador)
+    descuento?: number
 }) {
     try {
         const { items, canal_venta, metodo_pago, cliente_id, cliente_nuevo, usuario_id } = data
         if (!items.length) {
             return { success: false, error: "El carrito está vacío" }
         }
+
+        const descuento = Math.max(0, Number(data.descuento) || 0)
 
         const { ventaId, clienteCreado } = await prisma.$transaction(async (tx) => {
             // Verificar stock disponible dentro de la transacción para evitar sobreventa
@@ -83,8 +89,14 @@ export async function confirmarVentaPOS(data: {
                 }
             }
 
-            const total = items.reduce((s, i) => s + i.precio_venta_unitario * i.cantidad, 0)
-            const utilidadNeta = items.reduce((s, i) => s + (i.precio_venta_unitario - i.costo_inversion_unitario) * i.cantidad, 0)
+            const subtotal = items.reduce((s, i) => s + i.precio_venta_unitario * i.cantidad, 0)
+            const margenBruto = items.reduce((s, i) => s + (i.precio_venta_unitario - i.costo_inversion_unitario) * i.cantidad, 0)
+
+            // La rebaja nunca puede superar el subtotal (dejaría un total negativo)
+            const descuentoAplicado = Math.min(descuento, subtotal)
+            // El descuento sale de la ganancia: se cobra menos, pero el costo sigue igual
+            const total = subtotal - descuentoAplicado
+            const utilidadNeta = margenBruto - descuentoAplicado
 
             const venta = await tx.ventas.create({
                 data: {
@@ -93,6 +105,7 @@ export async function confirmarVentaPOS(data: {
                     canal_venta,
                     metodo_pago,
                     total,
+                    descuento: descuentoAplicado,
                     utilidad_neta_venta: utilidadNeta,
                 }
             })
@@ -112,6 +125,7 @@ export async function confirmarVentaPOS(data: {
                         cantidad: item.cantidad,
                         costo_inversion_unitario: item.costo_inversion_unitario,
                         precio_venta_unitario: item.precio_venta_unitario,
+                        precio_lista: item.precio_lista ?? item.precio_venta_unitario,
                         subtotal,
                     }
                 })

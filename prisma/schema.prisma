@@ -53,7 +53,11 @@ model detalle_ventas {
   color                    String    @default("Sin especificar")
   cantidad                 Int
   costo_inversion_unitario Decimal   @db.Decimal(10, 2)
+  // precio_venta_unitario es lo que se cobró de verdad por unidad (ya con la rebaja
+  // de esa prenda), por eso utilidad_subtotal sale bien sin tocar la columna generada.
+  // precio_lista guarda el precio de catálogo, para saber cuánto se rebajó.
   precio_venta_unitario    Decimal   @db.Decimal(10, 2)
+  precio_lista             Decimal?  @db.Decimal(10, 2)
   subtotal                 Decimal   @db.Decimal(10, 2)
   utilidad_subtotal        Decimal?  @default(dbgenerated("((precio_venta_unitario - costo_inversion_unitario) * (cantidad)::numeric)")) @db.Decimal(10, 2)
   productos                productos @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -147,8 +151,17 @@ model ventas {
   fecha_hora            DateTime?        @default(now()) @db.Timestamptz(6)
   canal_venta           String
   metodo_pago           String
+  // total y utilidad_neta_venta ya vienen con el descuento aplicado;
+  // descuento guarda cuánto se rebajó para poder reportarlo aparte.
   total                 Decimal          @db.Decimal(10, 2)
+  descuento             Decimal?         @default(0.00) @db.Decimal(10, 2)
   utilidad_neta_venta   Decimal          @default(0.00) @db.Decimal(10, 2)
+  // Una venta anulada conserva su registro pero deja de sumar en los reportes;
+  // el stock se devuelve al inventario con un movimiento de kardex.
+  anulada               Boolean?         @default(false)
+  fecha_anulacion       DateTime?        @db.Timestamptz(6)
+  motivo_anulacion      String?
+  anulada_por           String?          @db.Uuid
   detalle_ventas        detalle_ventas[]
   clientes              clientes?        @relation(fields: [cliente_id], references: [id], onUpdate: NoAction)
   perfiles              perfiles?        @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

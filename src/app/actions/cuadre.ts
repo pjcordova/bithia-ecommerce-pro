@@ -1,14 +1,15 @@
 'use server'
 
 import { prisma } from '@/lib/prisma'
+import { inicioDelDiaNegocio } from '@/lib/fechas'
 import { revalidatePath } from 'next/cache'
 
 export async function obtenerVentasHoyUsuario(usuarioId: string) {
     try {
         const hoy = new Date()
-        const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())
+        const inicioDia = inicioDelDiaNegocio(hoy)
         const ventasHoy = await prisma.ventas.findMany({
-            where: { usuario_id: usuarioId, fecha_hora: { gte: inicioDia } }
+            where: { usuario_id: usuarioId, fecha_hora: { gte: inicioDia }, anulada: false }
         })
 
         const totalSistema = ventasHoy.reduce((s, v) => s + Number(v.total), 0)
@@ -66,9 +67,9 @@ export async function registrarCuadre(data: {
 }) {
     try {
         const hoy = new Date()
-        const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())
+        const inicioDia = inicioDelDiaNegocio(hoy)
         const ventasHoy = await prisma.ventas.findMany({
-            where: { usuario_id: data.usuario_staff_id, fecha_hora: { gte: inicioDia } }
+            where: { usuario_id: data.usuario_staff_id, fecha_hora: { gte: inicioDia }, anulada: false }
         })
 
         const montoSistema = ventasHoy.reduce((s, v) => s + Number(v.total), 0)

@@ -5,7 +5,8 @@ import { prisma } from '@/lib/prisma'
 export async function obtenerDatosDashboard() {
     try {
         const [ventasRaw, detalleVentasRaw, productosRaw, clientesRaw, inventarioRaw, gastosRaw] = await Promise.all([
-            prisma.ventas.findMany({ orderBy: { fecha_hora: 'desc' } }),
+            // Las ventas anuladas no deben sumar en ningún indicador
+            prisma.ventas.findMany({ where: { anulada: false }, orderBy: { fecha_hora: 'desc' } }),
             prisma.detalle_ventas.findMany(),
             prisma.productos.findMany({ where: { activo: true } }),
             prisma.clientes.findMany(),

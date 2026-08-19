@@ -3,6 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
 import { TrendingUp, ShoppingBag, Users, AlertTriangle, ArrowUpRight, ArrowDownRight, CheckCircle2, Package, Receipt, Store } from 'lucide-react'
 import { obtenerDatosDashboard } from '@/app/actions/dashboard'
+import { fechaLocalNegocio } from '@/lib/fechas'
 import { useAuth } from '@/context/AuthContext'
 import { Layout } from '@/components/Layout'
 import { AdminRoute } from '@/components/AdminRoute'
@@ -41,9 +42,11 @@ export default function DashboardPage() {
   }, [])
 
   // Lógica de datos
+  // Se compara por fecha local del negocio (Lima), no por UTC: una venta de las
+  // 8 PM en Lima ocurre al día siguiente en UTC y quedaría fuera del día correcto.
   const now = new Date()
-  const todayStr = now.toISOString().split('T')[0]
-  const ventasHoy = ventas.filter(v => v.fecha_hora.startsWith(todayStr))
+  const todayStr = fechaLocalNegocio(now)
+  const ventasHoy = ventas.filter(v => fechaLocalNegocio(v.fecha_hora) === todayStr)
   const totalHoy = ventasHoy.reduce((s, v) => s + v.total, 0)
   const utilidadHoy = ventasHoy.reduce((s, v) => s + v.utilidad_neta_venta, 0)
   const stockTotal = inventario.reduce((s, i) => s + (Number(i.cantidad) || 0), 0)
@@ -52,8 +55,8 @@ export default function DashboardPage() {
     const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(now); d.setDate(d.getDate() - (6 - i))
-      const key = d.toISOString().split('T')[0]
-      const ventasDelDia = ventas.filter(v => v.fecha_hora.startsWith(key))
+      const key = fechaLocalNegocio(d)
+      const ventasDelDia = ventas.filter(v => fechaLocalNegocio(v.fecha_hora) === key)
       return {
         name: days[d.getDay()],
         retorno: ventasDelDia.reduce((s, v) => s + v.total, 0),

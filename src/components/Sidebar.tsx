@@ -2,7 +2,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Package, ShoppingCart, Users, Wallet, X, ClipboardCheck, Settings } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingCart, Users, Wallet, X, ClipboardCheck, Settings, Receipt } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 
 interface SidebarProps { onClose?: () => void }
@@ -11,6 +11,7 @@ const allNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', adminOnly: true },
   { icon: Package, label: 'Inventario', path: '/inventario', adminOnly: false },
   { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', adminOnly: false },
+  { icon: Receipt, label: 'Ventas', path: '/ventas', adminOnly: true },
   { icon: Users, label: 'Clientes (CRM)', path: '/clientes', adminOnly: true },
   { icon: Wallet, label: 'Finanzas', path: '/finanzas', adminOnly: true },
   { icon: ClipboardCheck, label: 'Cuadre de Caja', path: '/cierre-turno', adminOnly: false },

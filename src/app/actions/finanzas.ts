@@ -6,7 +6,8 @@ import { revalidatePath } from 'next/cache'
 export async function obtenerDatosFinanzas() {
     try {
         const [ventasRaw, gastosRaw] = await Promise.all([
-            prisma.ventas.findMany({ orderBy: { fecha_hora: 'desc' } }),
+            // Las ventas anuladas no deben sumar en ingresos ni utilidad
+            prisma.ventas.findMany({ where: { anulada: false }, orderBy: { fecha_hora: 'desc' } }),
             prisma.gastos_operativos.findMany({ orderBy: { fecha_hora: 'desc' } }),
         ])
 

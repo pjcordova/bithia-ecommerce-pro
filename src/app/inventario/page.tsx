@@ -92,6 +92,8 @@ export default function InventarioPage() {
 
   // Edición de prenda (dentro del modal de detalle)
   const [modoEdicion, setModoEdicion] = useState(false)
+  // Color elegido en el detalle, para mostrar la foto que le corresponde
+  const [colorVistaDetalle, setColorVistaDetalle] = useState<string | null>(null)
   const [editNombre, setEditNombre] = useState('')
   const [editCategoria, setEditCategoria] = useState('Blusas')
   const [editColor, setEditColor] = useState('')
@@ -290,6 +292,8 @@ export default function InventarioPage() {
     setModoEdicion(false)
     setMostrarFormAjuste(false)
     setMovimientos([])
+    // Arranca mostrando el primer color de la prenda
+    setColorVistaDetalle(agruparPorColor(item.inventario_tallas)[0]?.color ?? null)
     setDetalleModalOpen(true)
     cargarMovimientos(item.id)
   }
@@ -393,6 +397,12 @@ export default function InventarioPage() {
       toast.error(res.error)
     }
   }
+
+  // Foto del color que se está viendo; si ese color no tiene, la general de la prenda
+  const fotoDelColorSeleccionado =
+    productoSeleccionado?.producto_colores?.find((c: any) => c.color === colorVistaDetalle)?.imagen_url
+    || productoSeleccionado?.imagen_url
+    || null
 
   const handleGuardarAjuste = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1154,10 +1164,10 @@ export default function InventarioPage() {
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="flex flex-col items-center justify-center bg-muted/40 rounded-2xl p-4 border border-border/60 min-h-[220px]">
-                      {productoSeleccionado.imagen_url ? (
+                      {fotoDelColorSeleccionado ? (
                         <img
-                          src={productoSeleccionado.imagen_url}
-                          alt={productoSeleccionado.nombre}
+                          src={fotoDelColorSeleccionado}
+                          alt={`${productoSeleccionado.nombre} ${colorVistaDetalle || ''}`}
                           className="max-h-[240px] w-full object-cover rounded-xl shadow-md border border-border"
                         />
                       ) : (
@@ -1202,13 +1212,25 @@ export default function InventarioPage() {
                         <div className="space-y-2">
                           {agruparPorColor(productoSeleccionado.inventario_tallas).map(grupo => (
                             <div key={grupo.color}>
-                              <div className="flex items-center gap-1.5 mb-1">
+                              {/* Al tocar el color se muestra su foto arriba */}
+                              <button
+                                type="button"
+                                onClick={() => setColorVistaDetalle(grupo.color)}
+                                title={`Ver foto de ${grupo.color}`}
+                                className={`flex items-center gap-1.5 mb-1 rounded-lg px-1.5 py-0.5 -ml-1.5 transition-all ${
+                                  colorVistaDetalle === grupo.color ? 'bg-primary/10' : 'hover:bg-muted'
+                                }`}
+                              >
                                 <span
-                                  className="h-3 w-3 rounded-full border border-black/10 shadow-sm flex-shrink-0"
+                                  className={`h-3 w-3 rounded-full border shadow-sm flex-shrink-0 transition-all ${
+                                    colorVistaDetalle === grupo.color ? 'border-primary border-2 scale-110' : 'border-black/10'
+                                  }`}
                                   style={{ backgroundColor: obtenerColorHex(grupo.color) }}
                                 />
-                                <span className="text-[11px] font-bold text-foreground">{grupo.color}</span>
-                              </div>
+                                <span className={`text-[11px] font-bold ${colorVistaDetalle === grupo.color ? 'text-primary' : 'text-foreground'}`}>
+                                  {grupo.color}
+                                </span>
+                              </button>
                               <div className="flex flex-wrap gap-2 pl-4.5">
                                 {grupo.tallas.map((t: any) => (
                                   <div key={t.id} className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold text-foreground flex items-center gap-1.5 shadow-sm">

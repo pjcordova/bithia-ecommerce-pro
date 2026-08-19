@@ -106,7 +106,7 @@ export async function eliminarCliente(id: string) {
 export async function obtenerHistorialCompras(clienteId: string) {
     try {
         const ventas = await prisma.ventas.findMany({
-            where: { cliente_id: clienteId },
+            where: { cliente_id: clienteId, anulada: false },
             include: { detalle_ventas: { include: { productos: true } } },
             orderBy: { fecha_hora: 'desc' },
         })
