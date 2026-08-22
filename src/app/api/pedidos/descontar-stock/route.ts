@@ -90,6 +90,52 @@ export async function POST(request: NextRequest) {
 
       for (const item of items) {
         const talla = item.talla.toUpperCase();
+
+        // Camino preciso: producto_colores.codigo_lote identifica un color
+        // exacto (recepciones nuevas, ver recepcion.ts). No hay ambigüedad
+        // posible por acá — si existe, resuelve directo sin adivinar color.
+        const colorMatch = await tx.producto_colores.findUnique({
+          where: { codigo_lote: item.codigo_lote },
+          include: { productos: true },
+        });
+
+        if (colorMatch) {
+          const inv = await tx.inventario_tallas.findFirst({
+            where: { producto_id: colorMatch.producto_id, talla, color: colorMatch.color },
+          });
+
+          if (!inv) {
+            problemas.push({
+              codigo_lote: item.codigo_lote,
+              talla,
+              motivo: `El producto "${colorMatch.productos.nombre}" (${colorMatch.color}) no tiene inventario cargado para la talla ${talla}.`,
+            });
+            continue;
+          }
+          if (inv.cantidad < item.cantidad) {
+            problemas.push({
+              codigo_lote: item.codigo_lote,
+              talla,
+              motivo: `Stock insuficiente: hay ${inv.cantidad} y se pidieron ${item.cantidad}.`,
+            });
+            continue;
+          }
+
+          detalle.push({
+            producto_id: colorMatch.producto_id,
+            talla,
+            color: colorMatch.color,
+            cantidad: item.cantidad,
+            precio_venta_unitario: Number(colorMatch.productos.precio_venta),
+            costo_inversion_unitario: Number(colorMatch.productos.costo_inversion),
+          });
+          continue;
+        }
+
+        // Camino de respaldo: productos recepcionados antes de que existiera
+        // el código por color (producto_colores.codigo_lote), matcheando
+        // contra productos.lote como antes. Puede ser ambiguo si ese lote
+        // agrupa más de un color — acá sí hace falta el chequeo.
         const producto = await tx.productos.findFirst({
           where: { lote: item.codigo_lote },
           include: { inventario_tallas: { where: { talla } } },
@@ -120,7 +166,7 @@ export async function POST(request: NextRequest) {
             talla,
             motivo: `El lote agrupa ${colores.size} colores (${[...colores].join(
               ", "
-            )}) y bithia-web no manda color: no se puede saber cuál descontar sin ambigüedad.`,
+            )}) y bithia-web no manda color: no se puede saber cuál descontar sin ambigüedad. Este producto es de antes del código por color — recepciónalo de nuevo para que cada color quede con su propio código.`,
           });
           continue;
         }

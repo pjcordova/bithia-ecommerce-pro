@@ -139,7 +139,7 @@ export async function registrarRecepcionMercaderia(data: {
                 }))
             })
 
-            await guardarColoresDeProducto(producto.id, tallas, fotosPorColor)
+            const codigosPorColor = await guardarColoresDeProducto(producto.id, numeroLote, tallas, fotosPorColor)
 
             revalidatePath('/inventario')
             revalidatePath('/inventario/recepcion')
@@ -148,6 +148,7 @@ export async function registrarRecepcionMercaderia(data: {
                 message: `¡Prenda nueva registrada! Lote ${numeroLote} · Código ${producto.codigo_barras}`,
                 codigo_barras: producto.codigo_barras,
                 lote: numeroLote,
+                codigosPorColor,
             }
         }
 
@@ -196,7 +197,7 @@ export async function registrarRecepcionMercaderia(data: {
             }))
         })
 
-        await guardarColoresDeProducto(producto.id, tallas, fotosPorColor)
+        const codigosPorColor = await guardarColoresDeProducto(producto.id, numeroLote, tallas, fotosPorColor)
 
         revalidatePath('/inventario')
         revalidatePath('/inventario/recepcion')
@@ -206,6 +207,7 @@ export async function registrarRecepcionMercaderia(data: {
             message: `¡Stock actualizado! +${unidadesIngresadas} unidades bajo Lote ${numeroLote}`,
             codigo_barras: producto.codigo_barras,
             lote: numeroLote,
+            codigosPorColor,
         }
     } catch (error) {
         console.error("Error al registrar recepción:", error)
@@ -213,15 +215,30 @@ export async function registrarRecepcionMercaderia(data: {
     }
 }
 
-// Registra cada color del ingreso en producto_colores con su foto.
-// Si el color ya existía, solo actualiza la foto cuando se envió una nueva
-// (así no se borra una foto ya cargada al reponer stock sin adjuntar imagen).
+// A partir de "TOP-2508-03" y "Rojo" -> "TOP-2508-03-ROJO"
+function codigoLotePorColor(numeroLote: string, color: string): string {
+    const colorSlug = color
+        .trim()
+        .toUpperCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '') // quita tildes
+        .replace(/\s+/g, '-')
+    return `${numeroLote}-${colorSlug}`
+}
+
+// Registra cada color del ingreso en producto_colores con su foto y su
+// código puente con bithia-web. Si el color ya existía, solo actualiza la
+// foto cuando se envió una nueva (así no se borra una foto ya cargada al
+// reponer stock sin adjuntar imagen) y conserva el código que ya tenía —
+// cada color mantiene el código de cuando se vio por primera vez, no el
+// lote de la recepción que lo repuso.
 async function guardarColoresDeProducto(
     productoId: string,
+    numeroLote: string,
     tallas: { color: string }[],
     fotosPorColor?: { color: string; imagen_url?: string }[]
-) {
+): Promise<{ color: string; codigo_lote: string }[]> {
     const coloresUnicos = Array.from(new Set(tallas.map(t => t.color)))
+    const codigosPorColor: { color: string; codigo_lote: string }[] = []
 
     for (const color of coloresUnicos) {
         const foto = fotosPorColor?.find(f => f.color === color)?.imagen_url || null
@@ -236,10 +253,15 @@ async function guardarColoresDeProducto(
                     data: { imagen_url: foto },
                 })
             }
+            codigosPorColor.push({ color, codigo_lote: existente.codigo_lote || codigoLotePorColor(numeroLote, color) })
         } else {
+            const codigo_lote = codigoLotePorColor(numeroLote, color)
             await prisma.producto_colores.create({
-                data: { producto_id: productoId, color, imagen_url: foto },
+                data: { producto_id: productoId, color, imagen_url: foto, codigo_lote },
             })
+            codigosPorColor.push({ color, codigo_lote })
         }
     }
+
+    return codigosPorColor
 }
