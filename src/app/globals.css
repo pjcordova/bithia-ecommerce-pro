@@ -1,14 +1,19 @@
 @import "tailwindcss";
 
+/* Mismos tokens que bithia-web (src/app/globals.css de ese repo) — el ERP y
+   la tienda tienen que leerse como la misma marca. terracota, terracota-
+   oscuro, rosa y crema son valores idénticos a propósito; solo cambia el
+   nombre de variable porque este proyecto ya tenía su propio esquema
+   primary/secondary/accent antes de esta integración. */
 :root {
   --background: #ffffff;
   --foreground: #5a5a5a;
   --primary: #c9a48d;
   --primary-foreground: #ffffff;
-  --secondary: #e6d5cc;
+  --secondary: #f0dcd6;
   --secondary-foreground: #5a5a5a;
   --muted: #f5f0ed;
-  --muted-foreground: #9e9e9e;
+  --muted-foreground: #8a8a8a;
   --accent: #d4a59a;
   --accent-foreground: #ffffff;
   --destructive: #c86f6f;
@@ -20,9 +25,9 @@
   --sidebar: #ffffff;
   --sidebar-border: rgba(201, 164, 141, 0.15);
 
-  --bithia-silver: #9e9e9e;
+  --bithia-silver: #8a8a8a;
   --bithia-bg: #faf8f7;
-  --bithia-terracotta: #c97d6f;
+  --bithia-terracotta: #b08a70;
   --bithia-rose: #d4a59a;
 }
 
@@ -44,9 +49,9 @@
   --sidebar: #1a1614;
   --sidebar-border: rgba(201, 164, 141, 0.15);
 
-  --bithia-silver: #9e9e9e;
+  --bithia-silver: #8a8a8a;
   --bithia-bg: #141210;
-  --bithia-terracotta: #c97d6f;
+  --bithia-terracotta: #b08a70;
   --bithia-rose: #d4a59a;
 }
 
