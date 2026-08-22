@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SESSION_COOKIE_NAME, verificarTokenSesion } from '@/lib/session-core'
 
-// /api/pedidos/descontar-stock no usa cookie de sesión: lo llama bithia-web
-// (otro servidor, sin usuario logueado) con su propia autenticación por
-// Bearer token, verificada dentro del propio endpoint.
-const PUBLIC_ROUTES = ['/login', '/api/pedidos/descontar-stock']
+// Ninguna de estas dos usa cookie de sesión: las llama bithia-web (otro
+// servidor, sin usuario logueado) con su propia autenticación por Bearer
+// token, verificada dentro de cada endpoint.
+const PUBLIC_ROUTES = ['/login', '/api/pedidos/descontar-stock', '/api/productos/stock']
 
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
