@@ -120,20 +120,32 @@ export default function InventarioPage() {
   const [ajusteMotivo, setAjusteMotivo] = useState('')
   const [guardandoAjuste, setGuardandoAjuste] = useState(false)
 
-  const cargarInventario = async () => {
-    setLoading(true)
+  // mostrarCargando=false es el refresco silencioso de fondo: no vuelve a
+  // mostrar el spinner ni un toast de error puntual, solo actualiza la
+  // lista si la consulta salió bien.
+  const cargarInventario = async (mostrarCargando = true) => {
+    if (mostrarCargando) setLoading(true)
     const res = await obtenerProductosInventario()
     if (res.success) {
       setInventario(res.productos)
-    } else {
+    } else if (mostrarCargando) {
       toast.error('Error al cargar el inventario desde Railway')
     }
-    setLoading(false)
+    if (mostrarCargando) setLoading(false)
     return res.productos || []
   }
 
   useEffect(() => {
     cargarInventario()
+
+    // Refresco silencioso cada segundo: si el stock cambió (venta en el
+    // POS, o un pedido de bithia-web que ya se confirmó), la dueña lo ve
+    // casi al instante sin recargar la página. Se pausa si la pestaña no
+    // está a la vista.
+    const intervalo = setInterval(() => {
+      if (document.visibilityState === "visible") cargarInventario(false)
+    }, 1000)
+    return () => clearInterval(intervalo)
   }, [])
 
   const cargarMovimientos = async (productoId: string) => {

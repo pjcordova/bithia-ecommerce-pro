@@ -43,20 +43,33 @@ export default function PosPage() {
   const [nuevoClienteNombre, setNuevoClienteNombre] = useState('')
   const [nuevoClienteWhatsapp, setNuevoClienteWhatsapp] = useState('')
 
-  const cargarDatos = async () => {
-    setLoading(true)
+  // mostrarCargando=false es el refresco silencioso de fondo: no vuelve a
+  // mostrar el spinner de carga ni un toast de error puntual, solo
+  // actualiza los datos si la consulta salió bien.
+  const cargarDatos = async (mostrarCargando = true) => {
+    if (mostrarCargando) setLoading(true)
     const res = await obtenerDatosPOS()
     if (res.success) {
       setProductos(res.productos)
       setClientes(res.clientes)
-    } else {
+    } else if (mostrarCargando) {
       toast.error('Error al cargar productos desde Railway')
     }
-    setLoading(false)
+    if (mostrarCargando) setLoading(false)
   }
 
   useEffect(() => {
     cargarDatos()
+
+    // Refresco silencioso cada segundo: si el stock cambió (otra venta en
+    // este mismo POS, en el POS de otra caja, o un pedido de bithia-web que
+    // ya se confirmó), la vendedora lo ve casi al instante sin recargar la
+    // página a mano — evita que intente vender algo que ya no hay. Se pausa
+    // cuando la pestaña no está a la vista, para no gastar de más.
+    const intervalo = setInterval(() => {
+      if (document.visibilityState === "visible") cargarDatos(false)
+    }, 1000)
+    return () => clearInterval(intervalo)
   }, [])
 
   // Categorías presentes en el catálogo actual, para las pestañas de filtro

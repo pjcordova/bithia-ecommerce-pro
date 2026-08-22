@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma";
 
 type StockTalla = { talla: string; cantidad: number };
 
+// bithia-web consulta esto cada segundo — nunca debe servir una respuesta
+// cacheada, tiene que pegarle a la base en cada llamada.
+export const dynamic = "force-dynamic";
+
 /**
  * Consulta de stock real en vivo, para que bithia-web muestre las mismas
  * cantidades que ve la dueña acá en el ERP — antes bithia-web solo tenía un
