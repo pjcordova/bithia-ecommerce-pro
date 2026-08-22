@@ -15,6 +15,7 @@ export async function obtenerDatosFinanzas() {
             ...v,
             fecha_hora: (v.fecha_hora || new Date()).toISOString(),
             total: Number(v.total),
+            descuento: Number(v.descuento || 0),
             utilidad_neta_venta: Number(v.utilidad_neta_venta),
         }))
 

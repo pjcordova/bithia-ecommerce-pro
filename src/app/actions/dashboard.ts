@@ -18,6 +18,7 @@ export async function obtenerDatosDashboard() {
             ...v,
             fecha_hora: (v.fecha_hora || new Date()).toISOString(),
             total: Number(v.total),
+            descuento: Number(v.descuento || 0),
             utilidad_neta_venta: Number(v.utilidad_neta_venta),
         }))
 
@@ -25,6 +26,7 @@ export async function obtenerDatosDashboard() {
             ...d,
             costo_inversion_unitario: Number(d.costo_inversion_unitario),
             precio_venta_unitario: Number(d.precio_venta_unitario),
+            precio_lista: d.precio_lista ? Number(d.precio_lista) : 0,
             subtotal: Number(d.subtotal),
             utilidad_subtotal: d.utilidad_subtotal ? Number(d.utilidad_subtotal) : 0,
         }))
